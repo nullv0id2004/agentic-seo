@@ -29,13 +29,10 @@ def _load_workflows() -> None:
     register_workflow(monthly_full.WORKFLOW, monthly_full.build)
     register_workflow("daily_probe", daily.build_daily_probe)
     register_workflow("daily_collect", daily.build_daily_collect)
-    try:
-        from orchestrator.graphs import content_pipeline, quarterly_keyword
+    from orchestrator.graphs import content_pipeline, quarterly_keyword
 
-        for mod in (quarterly_keyword, content_pipeline):
-            register_workflow(mod.WORKFLOW, mod.build)
-    except ImportError:
-        pass
+    register_workflow(quarterly_keyword.WORKFLOW, quarterly_keyword.build)
+    register_workflow(content_pipeline.WORKFLOW, content_pipeline.build)
 
 
 def run_workflow(rt: Runtime, project: Project, workflow: str, trigger: str, logical_date: str,

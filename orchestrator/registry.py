@@ -55,9 +55,9 @@ for _c, _writes, _reads in [
 
 register(AgentSpec("technical", "analyst", reads=("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules"), llm=True))
 register(AgentSpec("ecommerce", "analyst", reads=("raw_crawl_pages", "critical_rules"), llm=True))
-register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_gsc_performance", "keywords", "critical_rules"), llm=True))
-register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "brand_rules"), llm=True))
-register(AgentSpec("content", "analyst", reads=("keywords", "raw_fetched_documents", "content_briefs"), llm=True))
+register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_gsc_performance", "keywords", "critical_rules", "raw_crawl_pages"), llm=True))
+register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "brand_rules", "critical_rules"), llm=True))
+register(AgentSpec("content", "analyst", reads=("keywords", "raw_fetched_documents", "content_briefs", "raw_crawl_pages", "critical_rules"), llm=True))
 register(AgentSpec("offpage", "analyst", reads=("mentions", "raw_serp"), llm=True))
 register(AgentSpec("trend", "analyst", reads=("raw_serp", "mentions", "raw_search_status"), llm=True))
 register(AgentSpec("report", "analyst", reads=("raw_gsc_performance", "raw_ga4_daily", "issues", "raw_serp", "mentions", "collection_gaps", "runs", "trend_events"), llm=True))
@@ -67,7 +67,7 @@ register(AgentSpec("github", "executor", reads=("approvals",), writes=("approval
 register(AgentSpec("cms", "executor", reads=("approvals", "content_briefs"), writes=("approvals", "content_briefs", "audit_log"), network=True, credentials=("cms-content-write-token",)))
 register(AgentSpec("email", "executor", reads=("approvals", "pitches"), writes=("approvals", "pitches", "audit_log"), network=True, credentials=("outreach-smtp",)))
 register(AgentSpec("orchestrator", "control", writes=("runs", "issues", "approvals", "agent_logs", "audit_log", "keywords", "pages",
-                                                       "content_briefs", "pitches", "reports", "gate_results", "mentions", "trend_events")))
+                                                       "content_briefs", "pitches", "reports", "gate_results", "mentions", "trend_events", "onpage_suggestions")))
 
 
 def spec(name: str) -> AgentSpec:

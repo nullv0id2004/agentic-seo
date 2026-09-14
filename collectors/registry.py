@@ -4,7 +4,18 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from collectors import crawl, doc_fetch, ga4, gsc, header_probe, psi, search_status, serp
+from collectors import (
+    backlinks,
+    crawl,
+    doc_fetch,
+    ga4,
+    gsc,
+    header_probe,
+    keyword_metrics,
+    psi,
+    search_status,
+    serp,
+)
 from collectors.base import CollectFn, CollectorResult, run_collector
 from contracts.project import Project
 
@@ -18,6 +29,8 @@ COLLECTORS: dict[str, CollectFn] = {
     "serp": serp.collect,
     "doc_fetch": doc_fetch.collect,
     "search_status": search_status.collect,
+    "keyword_metrics": keyword_metrics.collect,
+    "backlinks": backlinks.collect,
 }
 
 

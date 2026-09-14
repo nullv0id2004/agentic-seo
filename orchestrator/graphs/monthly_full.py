@@ -15,7 +15,7 @@ from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
 
 WORKFLOW = "monthly_full"
-COLLECTORS = ("gsc_performance", "ga4", "site_crawl", "header_probe", "vitals", "serp", "search_status")
+COLLECTORS = ("gsc_performance", "ga4", "site_crawl", "header_probe", "vitals", "serp", "search_status", "backlinks")
 ANALYST_ORDER = ("technical", "ecommerce", "keyword", "onpage", "trend", "offpage", "report")
 
 
@@ -91,6 +91,14 @@ def build(rt: Runtime) -> StateGraph:
                             f"analyst:{agent}", {"kind": "close_pr_and_delete_branch", "pr_number": None, "branch": None},
                             severity="critical" if issue["severity"] == "critical" else "normal")
                         queued.append(str(aid))
+            pitches = (state.get("artifacts", {}).get("offpage") or {}).get("pitches", [])
+            pitch_ids = state.get("gate", {}).get("offpage", {}).get("written", [])
+            for pid, p in zip(pitch_ids, pitches, strict=False):
+                aid = approvals.queue_approval(
+                    s, run_id, "send_pitch", {"pitch_id": pid, "outlet_url": p["outlet_url"], "subject": p["subject"], "body": p["body"]},
+                    f"Send outreach to {p['outlet_url']}: {p['subject']}", "analyst:offpage",
+                    {"kind": "send_retraction", "pitch_id": pid, "outlet_url": p["outlet_url"]})
+                queued.append(str(aid))
             notify.daily_digest(s)
         return {"approvals": queued, "status": "paused_for_approval" if queued else "done"}
 
