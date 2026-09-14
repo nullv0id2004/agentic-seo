@@ -27,8 +27,12 @@ requires_db = pytest.mark.skipif(not DB_AVAILABLE, reason="SEO_TEST_DATABASE_URL
 
 @pytest.fixture(scope="session")
 def db_url() -> str:
-    """A migrated test database. Migrations are applied once per session."""
+    """A freshly migrated test database. The schema is dropped and rebuilt once per session so that
+    budget and idempotency tests start from a known state (CI gets a clean container anyway)."""
     assert TEST_URL
+    import psycopg
+    with psycopg.connect(TEST_URL, autocommit=True) as conn:
+        conn.execute("drop schema public cascade; create schema public")
     apply_migrations(TEST_URL, verbose=False)
     return TEST_URL
 

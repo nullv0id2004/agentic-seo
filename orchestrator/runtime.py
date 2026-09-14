@@ -142,6 +142,27 @@ class Runtime:
         return result
 
 
+    def run_gate_stage2(self, project: Project, run_id: UUID, agent: str, artifact: dict[str, Any],
+                        artifact_ref: UUID | None = None):
+        from gate.stage2_verify import load_documents, run_stage2
+
+        with self.scope(project.id, "gate_stage2") as s:
+            refs = {UUID(str(src["fetched_doc_id"])) for src in artifact.get("sources", []) if src.get("fetched_doc_id")}
+            docs = load_documents(s, refs)
+            verifier = get_settings().verifier_model
+            result = run_stage2(artifact, docs, self.get_llm() if refs else None, model=verifier)
+            s.insert("gate_results", {
+                "run_id": run_id, "source_agent": agent, "artifact_ref": artifact_ref, "stage1_violations": [],
+                "stage2_verdict": result.verdict, "claims_verified": result.claims_verified, "claims_cut": result.claims_cut,
+                "detail": {"stage": 2, "claims": [c.__dict__ for c in result.claims], "findings": result.findings},
+            })
+            log_agent(s, run_id, "gate_stage2", "gate", result.verdict, {"verified": result.claims_verified, "cut": result.claims_cut, "findings": len(result.findings)},
+                      model=verifier if result.model_called else None)
+            if result.findings:
+                s.audit("gate:gate_stage2", "stage2_findings", {"findings": result.findings}, run_id)
+        return result
+
+
 def _summary(artifact: BaseModel) -> dict[str, Any]:
     data = artifact.model_dump(mode="json")
     return {k: (len(v) if isinstance(v, list) else v) for k, v in data.items() if not isinstance(v, (dict, str)) or k == "agent"}

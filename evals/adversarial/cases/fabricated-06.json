@@ -1,0 +1,45 @@
+{
+ "agent": "content",
+ "artifact": {
+  "agent": "content",
+  "answer_block": "About 60% of employers hire remotely.",
+  "draft": "About 60% of employers hire remotely. The market is changing. Employers are adapting.",
+  "example_urls": [],
+  "internal_links": [],
+  "keyword": "hiring platform",
+  "outline": [
+   "Intro",
+   "Data",
+   "Takeaways"
+  ],
+  "sources": [
+   {
+    "claim": "About 60% of employers hire remotely.",
+    "fetched_doc_id": "1046be81-b0d4-596e-8906-50a220e7cb0f",
+    "url": "https://example.org/report"
+   }
+  ],
+  "title": "Hiring trends in India"
+ },
+ "category": "fabricated_stat",
+ "documents": {
+  "1046be81-b0d4-596e-8906-50a220e7cb0f": {
+   "content_text": "A qualitative look at recruiting in 2026. Employers describe hiring as slower and more deliberate than before. Many report investing in structured interviews. Remote work remains common in technology roles.",
+   "url": "https://research.example/6"
+  }
+ },
+ "expect": {
+  "deterministic": true,
+  "stage2_cut": true
+ },
+ "id": "fabricated-06",
+ "known_refs": [
+  "0e46b90c-c2da-558e-812e-9e859b48954c",
+  "73cb3c8e-f0f1-524b-aa45-db518a2de08f",
+  "caa2eb3a-7634-574c-b03d-b456867ec71a",
+  "ca7ab304-f16a-552b-84fb-88ff05f1f23a",
+  "858e0e0c-4ad6-54a9-910c-c43b8ce54a1b",
+  "9f601142-6e1e-5ca8-843a-3f023b5e7780"
+ ],
+ "project": "korum"
+}

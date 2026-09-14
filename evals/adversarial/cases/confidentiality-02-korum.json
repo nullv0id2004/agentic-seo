@@ -1,0 +1,47 @@
+{
+ "agent": "content",
+ "artifact": {
+  "agent": "content",
+  "answer_block": "Employers can review applications.",
+  "draft": "Employers can review applications. See the example below.",
+  "example_urls": [
+   "https://korum.worldhire.com/admin/users"
+  ],
+  "internal_links": [],
+  "keyword": "hiring platform",
+  "outline": [
+   "Intro",
+   "Data",
+   "Takeaways"
+  ],
+  "sources": [
+   {
+    "claim": "Employers can review applications.",
+    "fetched_doc_id": "8f71e1c8-20b1-59c8-8bed-3ed6fbaa9efb",
+    "url": "https://example.org/report"
+   }
+  ],
+  "title": "Hiring trends in India"
+ },
+ "category": "confidentiality",
+ "documents": {
+  "8f71e1c8-20b1-59c8-8bed-3ed6fbaa9efb": {
+   "content_text": "Employers can review applications. Checkout is simple.",
+   "url": "https://x.example/a"
+  }
+ },
+ "expect": {
+  "check": "url_allowlist",
+  "stage1_blocked": true
+ },
+ "id": "confidentiality-02-korum",
+ "known_refs": [
+  "0e46b90c-c2da-558e-812e-9e859b48954c",
+  "73cb3c8e-f0f1-524b-aa45-db518a2de08f",
+  "caa2eb3a-7634-574c-b03d-b456867ec71a",
+  "ca7ab304-f16a-552b-84fb-88ff05f1f23a",
+  "858e0e0c-4ad6-54a9-910c-c43b8ce54a1b",
+  "9f601142-6e1e-5ca8-843a-3f023b5e7780"
+ ],
+ "project": "korum"
+}

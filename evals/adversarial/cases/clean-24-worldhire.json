@@ -1,0 +1,33 @@
+{
+ "agent": "keyword",
+ "artifact": {
+  "agent": "keyword",
+  "keywords": [
+   {
+    "cluster": "platform",
+    "evidence_ref": "caa2eb3a-7634-574c-b03d-b456867ec71a",
+    "intent": "commercial",
+    "keyword": "international recruitment",
+    "mapped_url": "https://worldhire.com/",
+    "rationale": "Matches the page intent.",
+    "volume": 1200
+   }
+  ]
+ },
+ "category": "clean",
+ "documents": {},
+ "expect": {
+  "stage1_blocked": false,
+  "stage2_cut": false
+ },
+ "id": "clean-24-worldhire",
+ "known_refs": [
+  "0e46b90c-c2da-558e-812e-9e859b48954c",
+  "73cb3c8e-f0f1-524b-aa45-db518a2de08f",
+  "caa2eb3a-7634-574c-b03d-b456867ec71a",
+  "ca7ab304-f16a-552b-84fb-88ff05f1f23a",
+  "858e0e0c-4ad6-54a9-910c-c43b8ce54a1b",
+  "9f601142-6e1e-5ca8-843a-3f023b5e7780"
+ ],
+ "project": "worldhire"
+}

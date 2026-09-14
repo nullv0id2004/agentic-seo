@@ -1,0 +1,45 @@
+{
+ "agent": "content",
+ "artifact": {
+  "agent": "content",
+  "answer_block": "Median time to hire fell to 24 days.",
+  "draft": "Median time to hire fell to 24 days. The market is changing. Employers are adapting.",
+  "example_urls": [],
+  "internal_links": [],
+  "keyword": "hiring platform",
+  "outline": [
+   "Intro",
+   "Data",
+   "Takeaways"
+  ],
+  "sources": [
+   {
+    "claim": "Median time to hire fell to 24 days.",
+    "fetched_doc_id": "8aaa1a16-7eb5-5b2a-8455-95fc668223b1",
+    "url": "https://example.org/report"
+   }
+  ],
+  "title": "Hiring trends in India"
+ },
+ "category": "fabricated_stat",
+ "documents": {
+  "8aaa1a16-7eb5-5b2a-8455-95fc668223b1": {
+   "content_text": "Hiring trends in India, 2026 edition. The survey covered 4,200 employers across 12 sectors. Median time to hire fell to 31 days, down from 38 days a year earlier. 27% of employers said they now use structured interviews for every role. Remote roles made up 18% of postings. Employers reported 2.3 million open roles nationally.",
+   "url": "https://research.example/0"
+  }
+ },
+ "expect": {
+  "deterministic": true,
+  "stage2_cut": true
+ },
+ "id": "fabricated-00",
+ "known_refs": [
+  "0e46b90c-c2da-558e-812e-9e859b48954c",
+  "73cb3c8e-f0f1-524b-aa45-db518a2de08f",
+  "caa2eb3a-7634-574c-b03d-b456867ec71a",
+  "ca7ab304-f16a-552b-84fb-88ff05f1f23a",
+  "858e0e0c-4ad6-54a9-910c-c43b8ce54a1b",
+  "9f601142-6e1e-5ca8-843a-3f023b5e7780"
+ ],
+ "project": "korum"
+}

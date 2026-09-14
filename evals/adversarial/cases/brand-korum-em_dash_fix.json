@@ -1,0 +1,33 @@
+{
+ "agent": "technical",
+ "artifact": {
+  "agent": "technical",
+  "issues": [
+   {
+    "claude_code_prompt": null,
+    "evidence": "no meta description",
+    "evidence_ref": "73cb3c8e-f0f1-524b-aa45-db518a2de08f",
+    "issue_type": "missing_meta_description",
+    "recommended_fix": "Add a meta description \u2014 under 155 characters",
+    "severity": "low",
+    "url": "https://korum.worldhire.com/blog/one"
+   }
+  ]
+ },
+ "category": "brand",
+ "documents": {},
+ "expect": {
+  "check": "brand",
+  "stage1_blocked": true
+ },
+ "id": "brand-korum-em_dash_fix",
+ "known_refs": [
+  "0e46b90c-c2da-558e-812e-9e859b48954c",
+  "73cb3c8e-f0f1-524b-aa45-db518a2de08f",
+  "caa2eb3a-7634-574c-b03d-b456867ec71a",
+  "ca7ab304-f16a-552b-84fb-88ff05f1f23a",
+  "858e0e0c-4ad6-54a9-910c-c43b8ce54a1b",
+  "9f601142-6e1e-5ca8-843a-3f023b5e7780"
+ ],
+ "project": "korum"
+}
