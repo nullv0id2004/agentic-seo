@@ -17,10 +17,19 @@ def build(rt: Runtime) -> StateGraph:
         project = rt.load_project(UUID(state["project_id"]))
         run_id = UUID(state["run_id"])
         out = dict(state.get("collectors", {}))
-        for name in ("serp", "search_status"):
-            res = rt.run_collector(project, run_id, name, {})
+        for name in ("serp", "search_status", "gsc_inspection"):
+            params = {}
+            if name == "gsc_inspection":
+                # weekly proof that protected routes are not indexed; the collector enforces the 2000/day cap
+                params = {"urls": [f"https://{project.primary_domain}{p if p.startswith('/') else '/' + p}" for p in project.critical_paths]}
+            res = rt.run_collector(project, run_id, name, params)
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
-        return {"collectors": out}
+        from orchestrator import critical
+        with rt.scope(project.id) as s:
+            indexed = critical.indexed_protected_routes(s)
+        violations = [{"rule_key": "indexed_protected_route", "assertion": "must_noindex", "url": r["url"], "detail": "URL Inspection reports this protected route as indexable"} for r in indexed]
+        critical.handle_violations(rt, project, run_id, violations, "collector:gsc_inspection")
+        return {"collectors": out, "critical_violations": violations}
 
     def trend(state: RunState) -> RunState:
         project = rt.load_project(UUID(state["project_id"]))

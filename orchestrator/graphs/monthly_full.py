@@ -15,7 +15,7 @@ from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
 
 WORKFLOW = "monthly_full"
-COLLECTORS = ("gsc_performance", "ga4", "site_crawl", "header_probe", "vitals", "serp", "search_status", "backlinks")
+COLLECTORS = ("gsc_performance", "ga4", "site_crawl", "gsc_inspection", "header_probe", "vitals", "serp", "search_status", "backlinks")
 ANALYST_ORDER = ("technical", "ecommerce", "keyword", "onpage", "trend", "offpage", "report")
 
 
