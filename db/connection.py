@@ -22,7 +22,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 TENANT_TABLES = frozenset({
-    "brand_rules", "critical_rules", "raw_gsc_performance", "raw_crawl_pages", "raw_sitemap_urls",
+    "brand_rules", "critical_rules", "raw_gsc_performance", "raw_ga4_daily", "raw_crawl_pages", "raw_sitemap_urls",
     "raw_vitals", "raw_serp", "raw_keyword_metrics", "raw_fetched_documents", "raw_search_status",
     "collection_gaps", "keywords", "pages", "issues", "content_briefs", "mentions", "pitches", "reports",
     "runs", "gate_results", "approvals", "agent_logs", "audit_log",
@@ -31,6 +31,11 @@ TENANT_TABLES = frozenset({
 RAW_TABLES = frozenset(t for t in TENANT_TABLES if t.startswith("raw_"))
 
 _TABLE_RE = re.compile(r"\b(?:from|into|update|join)\s+([a-z_]+)", re.IGNORECASE)
+
+
+def jsonb(value: Any) -> Json:
+    """Wrap a list (or anything) that must be stored as jsonb rather than as a Postgres array."""
+    return Json(value)
 
 
 class UnscopedQueryError(RuntimeError):
@@ -80,7 +85,8 @@ class ProjectScope:
         if _is_write(sql) and (tables & RAW_TABLES) and not self.caller.startswith("collector:"):
             raise RawTableWriteError(f"{self.caller} may not write {sorted(tables & RAW_TABLES)} (Section 13.4)")
         merged = {"project_id": self.project_id, **(params or {})}
-        merged = {k: (Json(v) if isinstance(v, (dict, list)) else v) for k, v in merged.items()}
+        # dicts are always jsonb; lists are Postgres arrays unless the caller wrapped them with jsonb()
+        merged = {k: (Json(v) if isinstance(v, dict) else v) for k, v in merged.items()}
         return self.conn.execute(sql, merged)
 
     def fetchall(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:

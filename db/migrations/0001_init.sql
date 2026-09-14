@@ -62,6 +62,16 @@ create table raw_gsc_performance (
 );
 create index on raw_gsc_performance (project_id, date);
 
+create table raw_ga4_daily (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references projects(id) on delete cascade,
+  run_id uuid not null,
+  date date not null, page_path text, channel text,
+  sessions int, engaged_sessions int, conversions numeric,
+  collected_at timestamptz not null default now()
+);
+create index on raw_ga4_daily (project_id, date);
+
 create table raw_crawl_pages (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
@@ -293,7 +303,7 @@ begin
     where schemaname = 'public'
       and tablename <> 'projects'
       and tablename in (
-        'brand_rules','critical_rules','raw_gsc_performance','raw_crawl_pages','raw_sitemap_urls',
+        'brand_rules','critical_rules','raw_gsc_performance','raw_ga4_daily','raw_crawl_pages','raw_sitemap_urls',
         'raw_vitals','raw_serp','raw_keyword_metrics','raw_fetched_documents','raw_search_status',
         'collection_gaps','keywords','pages','issues','content_briefs','mentions','pitches','reports',
         'runs','gate_results','approvals','agent_logs','audit_log')
