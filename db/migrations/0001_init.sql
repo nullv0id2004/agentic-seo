@@ -21,6 +21,8 @@ create table projects (
   allowed_schema_types text[] not null default '{}',
   monthly_content_cap int not null default 4,   -- Section 13.9: deliberately low, not a placeholder
   critical_paths  text[] not null default '{}',   -- probed by header_probe after every deploy and daily
+  github_repo     text,                           -- owner/repo the github_executor opens fix PRs against
+  cms_publish_url text,                           -- endpoint the cms_executor publishes approved drafts to
   active          boolean not null default true,
   created_at      timestamptz not null default now(),
   constraint projects_vertical_check check (vertical in ('recruitment','ecommerce','content','saas')),

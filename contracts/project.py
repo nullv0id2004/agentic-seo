@@ -61,6 +61,8 @@ class ProjectConfig(BaseModel):
     critical_rules: list[CriticalRule] = Field(default_factory=list)
     brand_rules: list[BrandRule] = Field(default_factory=list)
     critical_paths: list[str] = Field(default_factory=list)   # probed daily by header_probe
+    github_repo: str | None = None          # owner/repo for fix PRs
+    cms_publish_url: str | None = None      # publish endpoint for approved drafts
     keyword_seeds: list[str] = Field(default_factory=list)
     cross_link_exclusions: list[str] = Field(default_factory=list)  # slugs whose primary keywords this project may not claim
 
@@ -96,6 +98,8 @@ class Project(BaseModel):
     allowed_schema_types: list[str] = Field(default_factory=list)
     monthly_content_cap: int = 4
     critical_paths: list[str] = Field(default_factory=list)
+    github_repo: str | None = None
+    cms_publish_url: str | None = None
     active: bool = True
 
     @classmethod

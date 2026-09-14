@@ -68,6 +68,7 @@ register(AgentSpec("cms", "executor", reads=("approvals", "content_briefs"), wri
 register(AgentSpec("email", "executor", reads=("approvals", "pitches"), writes=("approvals", "pitches", "audit_log"), network=True, credentials=("outreach-smtp",)))
 register(AgentSpec("orchestrator", "control", writes=("runs", "issues", "approvals", "agent_logs", "audit_log", "keywords", "pages",
                                                        "content_briefs", "pitches", "reports", "gate_results", "mentions", "trend_events", "onpage_suggestions")))
+register(AgentSpec("keyword_mapping", "executor", reads=("approvals", "keywords"), writes=("approvals", "keywords", "audit_log")))
 
 
 def spec(name: str) -> AgentSpec:

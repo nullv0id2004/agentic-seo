@@ -74,6 +74,12 @@ def tick(rt, now_utc: datetime | None = None) -> list[dict[str, Any]]:
     with connect(rt.db_url) as conn:
         projects = list_active_projects(conn)
     started = []
+    from executors.dispatch import execute_approved
+
+    for row in projects:
+        done = execute_approved(rt, row["id"])
+        if done:
+            started.append({"project": row["slug"], "executed": done})
     for row, workflow, logical in due(now_utc, projects):
         project = Project.from_row(row)
         if workflow == "daily_digest":

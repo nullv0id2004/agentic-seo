@@ -5,6 +5,8 @@ domains: [rejuveluxe.com, www.rejuveluxe.com]
 gsc_property: sc-domain:rejuveluxe.com
 ga4_property_id: null
 credentials_ref: gsc-rejuveluxe-service-account
+github_repo: worldhire/rejuveluxe-store
+cms_publish_url: null
 approver_id: 00000000-0000-4000-8000-000000000001
 monthly_cost_cap_usd: 50
 monthly_content_cap: 4

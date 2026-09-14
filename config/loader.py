@@ -36,17 +36,17 @@ def seed_projects(url: str, configs: list[ProjectConfig] | None = None) -> dict[
                 """
                 insert into projects (slug, display_name, domains, vertical, gsc_property, ga4_property_id,
                     credentials_ref, approver_id, monthly_cost_cap_usd, enabled_agents, allowed_schema_types,
-                    monthly_content_cap, critical_paths)
+                    monthly_content_cap, critical_paths, github_repo, cms_publish_url)
                 values (%(slug)s, %(display_name)s, %(domains)s, %(vertical)s, %(gsc_property)s, %(ga4_property_id)s,
                     %(credentials_ref)s, %(approver_id)s, %(monthly_cost_cap_usd)s, %(enabled_agents)s,
-                    %(allowed_schema_types)s, %(monthly_content_cap)s, %(critical_paths)s)
+                    %(allowed_schema_types)s, %(monthly_content_cap)s, %(critical_paths)s, %(github_repo)s, %(cms_publish_url)s)
                 on conflict (slug) do update set
                     display_name = excluded.display_name, domains = excluded.domains, vertical = excluded.vertical,
                     gsc_property = excluded.gsc_property, ga4_property_id = excluded.ga4_property_id,
                     credentials_ref = excluded.credentials_ref, approver_id = excluded.approver_id,
                     monthly_cost_cap_usd = excluded.monthly_cost_cap_usd, enabled_agents = excluded.enabled_agents,
                     allowed_schema_types = excluded.allowed_schema_types, monthly_content_cap = excluded.monthly_content_cap,
-                    critical_paths = excluded.critical_paths
+                    critical_paths = excluded.critical_paths, github_repo = excluded.github_repo, cms_publish_url = excluded.cms_publish_url
                 returning id
                 """,
                 {
@@ -55,7 +55,7 @@ def seed_projects(url: str, configs: list[ProjectConfig] | None = None) -> dict[
                     "credentials_ref": cfg.credentials_ref, "approver_id": cfg.approver_id,
                     "monthly_cost_cap_usd": cfg.monthly_cost_cap_usd, "enabled_agents": cfg.enabled_agents,
                     "allowed_schema_types": cfg.allowed_schema_types, "monthly_content_cap": cfg.monthly_content_cap,
-                    "critical_paths": cfg.critical_paths,
+                    "critical_paths": cfg.critical_paths, "github_repo": cfg.github_repo, "cms_publish_url": cfg.cms_publish_url,
                 },
             ).fetchone()
             pid = row["id"]
