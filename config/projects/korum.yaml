@@ -1,0 +1,30 @@
+slug: korum
+display_name: KORUM
+vertical: recruitment
+domains: [korum.worldhire.com]
+gsc_property: sc-domain:korum.worldhire.com
+ga4_property_id: null
+credentials_ref: gsc-korum-service-account
+approver_id: 00000000-0000-4000-8000-000000000001
+monthly_cost_cap_usd: 50
+monthly_content_cap: 4
+enabled_agents: [technical, keyword, onpage, content, offpage, trend, report]
+allowed_schema_types: [Organization, WebSite, Article, FAQPage, BreadcrumbList]
+critical_paths: [/dashboard/, /recruiter/, /admin/, /api/health, /recruiter/inbox]
+critical_rules:
+  - key: no_indexable_auth_route
+    url_pattern: '^/(dashboard|recruiter|admin|api)/'
+    assertion: must_noindex
+  - key: auth_routes_absent_from_sitemap
+    url_pattern: '^/(dashboard|recruiter|admin)/'
+    assertion: must_not_appear_in_sitemap
+  - key: no_jobposting_schema
+    url_pattern: '.*'
+    assertion: schema_type_forbidden:JobPosting
+brand_rules:
+  - {type: char_ban,      pattern: '—',                                   severity: block, rationale: 'no em dashes'}
+  - {type: banned_phrase, pattern: '(curated|hand-picked|AI-powered)',    severity: block}
+  - {type: banned_phrase, pattern: '\bCandidate\b',                       severity: block, rationale: 'use Job Seeker on public pages'}
+  - {type: regex,         pattern: 'you[^.]{0,40}(cheap|invisible|exposed)', severity: block}
+keyword_seeds: [job search platform, recruiter software, hiring platform india]
+cross_link_exclusions: [worldhire]

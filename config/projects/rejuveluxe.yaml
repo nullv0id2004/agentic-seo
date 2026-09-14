@@ -1,0 +1,26 @@
+slug: rejuveluxe
+display_name: RejuveLuxe
+vertical: ecommerce
+domains: [rejuveluxe.com, www.rejuveluxe.com]
+gsc_property: sc-domain:rejuveluxe.com
+ga4_property_id: null
+credentials_ref: gsc-rejuveluxe-service-account
+approver_id: 00000000-0000-4000-8000-000000000001
+monthly_cost_cap_usd: 50
+monthly_content_cap: 4
+enabled_agents: [technical, keyword, onpage, content, trend, report, ecommerce]
+allowed_schema_types: [Organization, WebSite, Product, Offer, AggregateRating, BreadcrumbList, Article]
+critical_paths: [/cart, /checkout, /account]
+critical_rules:
+  - key: no_indexable_checkout
+    url_pattern: '^/(cart|checkout|account)'
+    assertion: must_noindex
+  - key: product_price_matches_schema
+    url_pattern: '^/products/'
+    assertion: schema_matches_visible
+  - key: variant_canonical
+    url_pattern: '^/products/.*\?variant='
+    assertion: must_canonical_to_parent
+brand_rules:
+  - {type: char_ban, pattern: '—', severity: block, rationale: 'no em dashes'}
+keyword_seeds: [anti aging serum, luxury skincare, retinol cream]
