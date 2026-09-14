@@ -46,6 +46,10 @@ class RawTableWriteError(RuntimeError):
     """Raised when something that is not a collector tries to write a raw_* table (Section 13.4)."""
 
 
+class WriteGrantError(RuntimeError):
+    """Raised when an agent writes a table outside the grants it declared in the registry (P5)."""
+
+
 def database_url() -> str:
     url = os.environ.get("SEO_DATABASE_URL")
     if not url:
@@ -73,10 +77,12 @@ class ProjectScope:
     may write raw_* tables; the check is mechanical, not by prompt.
     """
 
-    def __init__(self, conn: psycopg.Connection, project_id: UUID, caller: str = "worker"):
+    def __init__(self, conn: psycopg.Connection, project_id: UUID, caller: str = "worker",
+                 allowed_writes: frozenset[str] | None = None):
         self.conn = conn
         self.project_id = project_id
         self.caller = caller
+        self.allowed_writes = allowed_writes   # None: unrestricted (operator); a set: enforced per registry grant
 
     def execute(self, sql: str, params: dict[str, Any] | None = None) -> psycopg.Cursor:
         tables = _tables_in(sql)
@@ -84,6 +90,8 @@ class ProjectScope:
             raise UnscopedQueryError(f"statement touches {sorted(tables & TENANT_TABLES)} without project_id: {sql[:120]}")
         if _is_write(sql) and (tables & RAW_TABLES) and not self.caller.startswith("collector:"):
             raise RawTableWriteError(f"{self.caller} may not write {sorted(tables & RAW_TABLES)} (Section 13.4)")
+        if _is_write(sql) and self.allowed_writes is not None and not (tables & TENANT_TABLES) <= self.allowed_writes:
+            raise WriteGrantError(f"{self.caller} has no write grant for {sorted((tables & TENANT_TABLES) - self.allowed_writes)}")
         merged = {"project_id": self.project_id, **(params or {})}
         # dicts are always jsonb; lists are Postgres arrays unless the caller wrapped them with jsonb()
         merged = {k: (Json(v) if isinstance(v, dict) else v) for k, v in merged.items()}
@@ -109,14 +117,14 @@ class ProjectScope:
 
 @contextmanager
 def project_scope(project_id: UUID, caller: str = "worker", conn: psycopg.Connection | None = None,
-                  url: str | None = None) -> Iterator[ProjectScope]:
+                  url: str | None = None, allowed_writes: frozenset[str] | None = None) -> Iterator[ProjectScope]:
     """Open a transaction bound to one project. Commits on success, rolls back on error."""
     own = conn is None
     c = conn or connect(url)
     try:
         with c.transaction():
             c.execute("select set_config('app.project_id', %s, true)", (str(project_id),))
-            yield ProjectScope(c, project_id, caller)
+            yield ProjectScope(c, project_id, caller, allowed_writes)
     finally:
         if own:
             c.close()

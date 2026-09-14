@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 LLM_MODULES = {"anthropic", "openai", "langchain", "langchain_anthropic", "langchain_openai", "litellm", "google.generativeai", "llm"}
-NETWORK_MODULES = {"httpx", "requests", "playwright", "aiohttp", "urllib", "urllib3", "socket", "http.client", "selenium", "websockets"}
+NETWORK_MODULES = {"httpx", "requests", "playwright", "aiohttp", "urllib.request", "urllib3", "socket", "http.client", "selenium", "websockets"}
 
 RULES = {
     "collectors": LLM_MODULES,

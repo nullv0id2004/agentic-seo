@@ -20,6 +20,7 @@ create table projects (
   enabled_agents  text[] not null default '{}',
   allowed_schema_types text[] not null default '{}',
   monthly_content_cap int not null default 4,   -- Section 13.9: deliberately low, not a placeholder
+  critical_paths  text[] not null default '{}',   -- probed by header_probe after every deploy and daily
   active          boolean not null default true,
   created_at      timestamptz not null default now(),
   constraint projects_vertical_check check (vertical in ('recruitment','ecommerce','content','saas')),
@@ -79,7 +80,7 @@ create table raw_crawl_pages (
   url text not null, status_code int, title text, meta_description text,
   h1 text[], canonical text, robots_meta text, x_robots_tag text,
   word_count int, in_sitemap boolean, schema_types text[],
-  raw_jsonld jsonb, internal_links_out int,
+  raw_jsonld jsonb, internal_links_out int, internal_links text[],
   indexable boolean,                      -- from gsc_inspection, null until inspected
   visible_price text,                     -- ecommerce: price as rendered on page, null elsewhere
   collected_at timestamptz not null default now()

@@ -51,7 +51,8 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                     "title": facts.title, "meta_description": facts.meta_description, "h1": facts.h1,
                     "canonical": facts.canonical, "robots_meta": facts.robots_meta, "word_count": facts.word_count,
                     "schema_types": facts.schema_types, "raw_jsonld": jsonb(facts.raw_jsonld),
-                    "internal_links_out": facts.internal_links_out, "visible_price": facts.visible_price,
+                    "internal_links_out": facts.internal_links_out, "internal_links": facts.internal_links,
+                    "visible_price": facts.visible_price,
                 })
                 if discover:
                     queue.extend(link for link in facts.internal_links if link not in seen)

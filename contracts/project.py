@@ -95,6 +95,7 @@ class Project(BaseModel):
     enabled_agents: list[str]
     allowed_schema_types: list[str] = Field(default_factory=list)
     monthly_content_cap: int = 4
+    critical_paths: list[str] = Field(default_factory=list)
     active: bool = True
 
     @classmethod
