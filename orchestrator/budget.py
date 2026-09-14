@@ -13,7 +13,7 @@ from db.connection import ProjectScope
 
 DEFAULT_ESTIMATE_USD: dict[str, float] = {
     "post_deploy_audit": 0.50, "weekly_monitor": 0.75, "monthly_full": 6.00, "quarterly_keyword": 3.00,
-    "content_pipeline": 2.50,
+    "content_pipeline": 2.50, "daily_probe": 0.00, "daily_collect": 0.00, "daily_digest": 0.00,
 }
 
 

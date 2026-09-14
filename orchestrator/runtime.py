@@ -81,8 +81,13 @@ class Runtime:
                                              f"select * from {table} where project_id = %(project_id)s and run_id = any(%(run_ids)s) order by created_at",
                                              {"run_ids": run_ids})
             elif table in _DATED:
-                since = params.get("since")
-                until = params.get("until")
+                # analysts compare against the prior period, so the read window is twice the period
+                since, until = params.get("since"), params.get("until")
+                if since and until:
+                    from datetime import date as _date
+                    from datetime import timedelta as _td
+                    a, b = _date.fromisoformat(since), _date.fromisoformat(until)
+                    since = (a - _td(days=(b - a).days + 1)).isoformat()
                 rows[table] = scope.fetchall(
                     f"select * from {table} where project_id = %(project_id)s and (%(since)s::date is null or {_DATED[table]} >= %(since)s::date) "
                     f"and (%(until)s::date is null or {_DATED[table]} <= %(until)s::date) order by {_DATED[table]}",

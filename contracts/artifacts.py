@@ -129,6 +129,8 @@ class MetricOut(Assertion):
     name: str
     value: float | None
     period: str
+    derived_from_rows: int = 0
+    prior_value: float | None = None
 
 
 class Caveat(Strict):

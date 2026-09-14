@@ -22,13 +22,17 @@ def register_workflow(name: str, builder) -> None:
 def _load_workflows() -> None:
     if WORKFLOWS:
         return
-    from orchestrator.graphs import post_deploy_audit
+    from orchestrator.graphs import daily, monthly_full, post_deploy_audit, weekly_monitor
 
     register_workflow(post_deploy_audit.WORKFLOW, post_deploy_audit.build)
+    register_workflow(weekly_monitor.WORKFLOW, weekly_monitor.build)
+    register_workflow(monthly_full.WORKFLOW, monthly_full.build)
+    register_workflow("daily_probe", daily.build_daily_probe)
+    register_workflow("daily_collect", daily.build_daily_collect)
     try:
-        from orchestrator.graphs import content_pipeline, monthly_full, quarterly_keyword, weekly_monitor
+        from orchestrator.graphs import content_pipeline, quarterly_keyword
 
-        for mod in (weekly_monitor, monthly_full, quarterly_keyword, content_pipeline):
+        for mod in (quarterly_keyword, content_pipeline):
             register_workflow(mod.WORKFLOW, mod.build)
     except ImportError:
         pass

@@ -60,14 +60,14 @@ register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "b
 register(AgentSpec("content", "analyst", reads=("keywords", "raw_fetched_documents", "content_briefs"), llm=True))
 register(AgentSpec("offpage", "analyst", reads=("mentions", "raw_serp"), llm=True))
 register(AgentSpec("trend", "analyst", reads=("raw_serp", "mentions", "raw_search_status"), llm=True))
-register(AgentSpec("report", "analyst", reads=("raw_gsc_performance", "raw_ga4_daily", "issues", "raw_serp", "mentions", "collection_gaps", "runs"), llm=True))
+register(AgentSpec("report", "analyst", reads=("raw_gsc_performance", "raw_ga4_daily", "issues", "raw_serp", "mentions", "collection_gaps", "runs", "trend_events"), llm=True))
 register(AgentSpec("gate_stage1", "gate", reads=("brand_rules", "critical_rules"), writes=("gate_results",)))
 register(AgentSpec("gate_stage2", "gate", reads=("raw_fetched_documents",), writes=("gate_results",), llm=True))
 register(AgentSpec("github", "executor", reads=("approvals",), writes=("approvals", "audit_log"), network=True, credentials=("github-fix-branch-token",)))
 register(AgentSpec("cms", "executor", reads=("approvals", "content_briefs"), writes=("approvals", "content_briefs", "audit_log"), network=True, credentials=("cms-content-write-token",)))
 register(AgentSpec("email", "executor", reads=("approvals", "pitches"), writes=("approvals", "pitches", "audit_log"), network=True, credentials=("outreach-smtp",)))
 register(AgentSpec("orchestrator", "control", writes=("runs", "issues", "approvals", "agent_logs", "audit_log", "keywords", "pages",
-                                                       "content_briefs", "pitches", "reports", "gate_results", "mentions")))
+                                                       "content_briefs", "pitches", "reports", "gate_results", "mentions", "trend_events")))
 
 
 def spec(name: str) -> AgentSpec:

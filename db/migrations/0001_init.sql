@@ -214,6 +214,15 @@ create table pitches (
   created_at timestamptz not null default now()
 );
 
+create table trend_events (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references projects(id) on delete cascade,
+  run_id uuid not null, kind text not null, name text not null, source_url text not null,
+  observed_on date not null, detail text, evidence_ref uuid,
+  created_at timestamptz not null default now()
+);
+create index on trend_events (project_id, observed_on desc);
+
 create table reports (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
@@ -306,7 +315,7 @@ begin
       and tablename in (
         'brand_rules','critical_rules','raw_gsc_performance','raw_ga4_daily','raw_crawl_pages','raw_sitemap_urls',
         'raw_vitals','raw_serp','raw_keyword_metrics','raw_fetched_documents','raw_search_status',
-        'collection_gaps','keywords','pages','issues','content_briefs','mentions','pitches','reports',
+        'collection_gaps','keywords','pages','issues','content_briefs','mentions','pitches','trend_events','reports',
         'runs','gate_results','approvals','agent_logs','audit_log')
   loop
     execute format('alter table %I enable row level security', t);
