@@ -24,6 +24,8 @@ create table projects (
   github_repo     text,                           -- owner/repo the github_executor opens fix PRs against
   cms_publish_url text,                           -- endpoint the cms_executor publishes approved drafts to
   active          boolean not null default true,
+  halted_reason   text,                           -- set when a protected route was indexable; cleared by a clean probe
+  halted_at       timestamptz,
   created_at      timestamptz not null default now(),
   constraint projects_vertical_check check (vertical in ('recruitment','ecommerce','content','saas')),
   constraint projects_slug_not_cruise_guru check (slug <> 'cruise-guru' and slug <> 'cruiseguru' and slug <> 'cruise_guru')

@@ -40,6 +40,8 @@ worker.py                App Service entrypoint: webhook server + one-minute sch
 | `github_executor` never merges, never touches main | merge endpoints refused; writes go to `seo-fix/*` branches only |
 | Content is capped per project per month | `projects.monthly_content_cap`, enforced in `analysts/content.py` before any model call; the contract rejects a cap above 8 |
 | Cruise Guru is not a tenant | slug rejected by the contract and by a table constraint |
+| An indexable protected route halts the project | `orchestrator/critical.py` sets `projects.halted_reason`; the runner skips every workflow except the probes until a probe comes back clean |
+| A retry after a crash resumes, it does not duplicate | `runner.run_workflow` re-enters the checkpointed graph for a failed or stale run with the same logical date |
 
 ## Running locally
 

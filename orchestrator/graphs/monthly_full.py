@@ -9,7 +9,7 @@ from uuid import UUID
 
 from langgraph.graph import END, StateGraph
 
-from orchestrator import approvals, notify
+from orchestrator import approvals, critical, notify
 from orchestrator.gate_runner import analyse_and_gate
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
@@ -27,7 +27,7 @@ def build(rt: Runtime) -> StateGraph:
         end = date.fromisoformat(params["until"]) if params.get("until") else date.today() - timedelta(days=3)
         start = date.fromisoformat(params["since"]) if params.get("since") else end.replace(day=1)
         out = dict(state.get("collectors", {}))
-        critical: list = []
+        crit: list = []
         for name in COLLECTORS:
             cparams = {}
             if name in ("gsc_performance", "ga4"):
@@ -39,14 +39,10 @@ def build(rt: Runtime) -> StateGraph:
             res = rt.run_collector(project, run_id, name, cparams)
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
             if name == "header_probe" and res.detail.get("violations"):
-                critical = res.detail["violations"]
-        if critical:
-            with rt.scope(project.id) as s:
-                notify.page_owner(s, run_id, critical)
-                approvals.queue_approval(s, run_id, "page_owner", {"violations": critical},
-                                         f"{len(critical)} protected route(s) are reachable by crawlers.", "collector:header_probe",
-                                         {"kind": "acknowledge"}, severity="critical")
-        return {"collectors": out, "critical_violations": critical, "params": {**params, "since": start.isoformat(), "until": end.isoformat()}}
+                crit = res.detail["violations"]
+        critical.handle_violations(rt, project, run_id, crit, "collector:header_probe")
+        critical.clear_halt_if_clean(rt, project, run_id, crit)
+        return {"collectors": out, "critical_violations": crit, "params": {**params, "since": start.isoformat(), "until": end.isoformat()}}
 
     def analyse(state: RunState) -> RunState:
         from analysts.registry import ANALYSTS

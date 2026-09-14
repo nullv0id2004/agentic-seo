@@ -17,15 +17,42 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
     reports: await q("select id, period, created_at, caveats from reports where project_id = $1 order by created_at desc limit 12"),
     trends: await q("select kind, name, source_url, observed_on, detail from trend_events where project_id = $1 order by observed_on desc limit 20"),
     pending: await q("select count(*)::int as n from approvals where project_id = $1 and status = 'pending'"),
+    suggestions: await q("select url, field, current, suggested, rationale from onpage_suggestions where project_id = $1 and status = 'proposed' order by created_at desc limit 40"),
+    ops: await q(`select
+        (select count(*)::int from gate_results where project_id = $1 and created_at >= now() - interval '30 days' and detail->>'stage' = '1') as gate1_runs,
+        (select count(*)::int from gate_results where project_id = $1 and created_at >= now() - interval '30 days' and detail->>'stage' = '1' and (detail->>'blocked')::boolean) as gate1_blocked,
+        (select coalesce(sum(claims_cut),0)::int from gate_results where project_id = $1 and created_at >= now() - interval '30 days' and stage2_verdict is not null) as claims_cut,
+        (select coalesce(sum(claims_verified),0)::int from gate_results where project_id = $1 and created_at >= now() - interval '30 days' and stage2_verdict is not null) as claims_verified,
+        (select coalesce(avg(cost_usd),0) from runs where project_id = $1 and status = 'done' and started_at >= now() - interval '30 days') as avg_cost,
+        (select count(*)::int from approvals where project_id = $1 and severity = 'critical' and created_at >= now() - interval '30 days') as escalations,
+        (select count(*)::int from raw_crawl_pages r where r.project_id = $1 and r.indexable = true and exists (
+            select 1 from critical_rules c where c.project_id = r.project_id and c.assertion = 'must_noindex' and c.active
+              and regexp_replace(r.url, '^https?://[^/]+', '') ~ c.url_pattern)) as indexed_protected`),
   }));
+  const ops = data.ops[0] ?? {};
   return (
     <>
       <h1>{str(project.display_name)} <span className="muted">({slug}, {str(project.vertical)})</span></h1>
+      {project.halted_reason ? (
+        <div className="card critical"><strong>Halted.</strong> {str(project.halted_reason)} All workflows except the probes are skipped until a probe comes back clean.</div>
+      ) : null}
       <p>
         <Link href={`/projects/${slug}/approvals`}>Approvals queue: {String(data.pending[0]?.n ?? 0)} pending</Link>
         {" · "}enabled agents: {(project.enabled_agents as string[]).join(", ")}
         {" · "}cap {fmtUsd(project.monthly_cost_cap_usd)}/month
       </p>
+
+      <h2>Last 30 days</h2>
+      <table>
+        <thead><tr><th>Indexed protected routes</th><th>Stage 1 blocked / runs</th><th>Stage 2 claims cut / verified</th><th>Avg cost per run</th><th>Critical escalations</th></tr></thead>
+        <tbody><tr>
+          <td><span className={`pill ${Number(ops.indexed_protected) > 0 ? "critical" : "ok"}`}>{String(ops.indexed_protected ?? 0)}</span> <span className="muted">must stay at zero</span></td>
+          <td>{String(ops.gate1_blocked ?? 0)} / {String(ops.gate1_runs ?? 0)}</td>
+          <td>{String(ops.claims_cut ?? 0)} / {String(ops.claims_verified ?? 0)}</td>
+          <td>{fmtUsd(ops.avg_cost)}</td>
+          <td>{String(ops.escalations ?? 0)}</td>
+        </tr></tbody>
+      </table>
 
       <h2>Open issues</h2>
       <table>
@@ -78,6 +105,17 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
           </li>
         ))}
       </ul>
+
+      <h2>On-page suggestions</h2>
+      <table>
+        <thead><tr><th>URL</th><th>Field</th><th>Current</th><th>Suggested</th><th>Why</th></tr></thead>
+        <tbody>
+          {data.suggestions.map((x, i) => (
+            <tr key={i}><td>{str(x.url)}</td><td>{str(x.field)}</td><td className="muted">{str(x.current)}</td><td>{str(x.suggested)}</td><td>{str(x.rationale)}</td></tr>
+          ))}
+          {data.suggestions.length === 0 && <tr><td colSpan={5} className="muted">none</td></tr>}
+        </tbody>
+      </table>
 
       <h2>Monitoring events</h2>
       <table>

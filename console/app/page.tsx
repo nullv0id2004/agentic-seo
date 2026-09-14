@@ -27,7 +27,7 @@ export default async function Home() {
         <tbody>
           {rows.map(({ p, pending, critical, spend, last, openIssues }) => (
             <tr key={str(p.id)}>
-              <td><Link href={`/projects/${str(p.slug)}`}>{str(p.display_name)}</Link></td>
+              <td><Link href={`/projects/${str(p.slug)}`}>{str(p.display_name)}</Link> {p.halted_reason ? <span className="pill critical">halted</span> : null}</td>
               <td>{str(p.vertical)}</td>
               <td>{String(pending)} {Number(critical) > 0 && <span className="pill critical">{String(critical)} critical</span>}</td>
               <td>{String(openIssues)}</td>

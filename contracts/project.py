@@ -101,6 +101,7 @@ class Project(BaseModel):
     github_repo: str | None = None
     cms_publish_url: str | None = None
     active: bool = True
+    halted_reason: str | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> Project:

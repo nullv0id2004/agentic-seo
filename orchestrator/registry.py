@@ -66,7 +66,7 @@ register(AgentSpec("gate_stage2", "gate", reads=("raw_fetched_documents",), writ
 register(AgentSpec("github", "executor", reads=("approvals",), writes=("approvals", "audit_log"), network=True, credentials=("github-fix-branch-token",)))
 register(AgentSpec("cms", "executor", reads=("approvals", "content_briefs"), writes=("approvals", "content_briefs", "audit_log"), network=True, credentials=("cms-content-write-token",)))
 register(AgentSpec("email", "executor", reads=("approvals", "pitches"), writes=("approvals", "pitches", "audit_log"), network=True, credentials=("outreach-smtp",)))
-register(AgentSpec("orchestrator", "control", writes=("runs", "issues", "approvals", "agent_logs", "audit_log", "keywords", "pages",
+register(AgentSpec("orchestrator", "control", writes=("runs", "projects", "issues", "approvals", "agent_logs", "audit_log", "keywords", "pages",
                                                        "content_briefs", "pitches", "reports", "gate_results", "mentions", "trend_events", "onpage_suggestions")))
 register(AgentSpec("keyword_mapping", "executor", reads=("approvals", "keywords"), writes=("approvals", "keywords", "audit_log")))
 

@@ -9,7 +9,7 @@ from uuid import UUID
 
 from langgraph.graph import END, StateGraph
 
-from orchestrator import approvals, notify
+from orchestrator import approvals, critical
 from orchestrator.gate_runner import write_issues
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
@@ -26,14 +26,9 @@ def build(rt: Runtime) -> StateGraph:
         res = rt.run_collector(project, run_id, "header_probe", {"paths": paths})
         violations = res.detail.get("violations", [])
         out: RunState = {"collectors": {**state.get("collectors", {}), "header_probe": _cr(res)}, "critical_violations": violations}
-        if violations:
-            with rt.scope(project.id) as s:
-                notify.page_owner(s, run_id, violations)
-                aid = approvals.queue_approval(
-                    s, run_id, "page_owner",
-                    {"violations": violations},
-                    f"{len(violations)} protected route(s) are reachable by crawlers after the latest deploy. Acknowledge once fixed.",
-                    "collector:header_probe", {"kind": "acknowledge"}, severity="critical")
+        aid = critical.handle_violations(rt, project, run_id, violations, "collector:header_probe")
+        critical.clear_halt_if_clean(rt, project, run_id, violations)
+        if aid:
             out["approvals"] = [*state.get("approvals", []), str(aid)]
         return out
 

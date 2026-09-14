@@ -75,7 +75,7 @@ class Runtime:
         rows: dict[str, list[dict[str, Any]]] = {}
         for table in registry.spec(agent).reads:
             if table in _RUN_SCOPED:
-                run_ids = [run_id, *params.get("include_run_ids", [])]
+                run_ids = [run_id, *(UUID(str(r)) for r in params.get("include_run_ids", []))]
                 order = {"collection_gaps": "created_at", "raw_fetched_documents": "fetched_at"}.get(table, "collected_at")
                 rows[table] = scope.fetchall(f"select * from {table} where project_id = %(project_id)s and run_id = any(%(run_ids)s) order by {order}, id",
                                              {"run_ids": run_ids})
