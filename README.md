@@ -61,7 +61,7 @@ Without it those tests skip.
 
 1. Create a **new, dedicated** Supabase project for the SEO system. Never install this schema into an application
    database (Section 13.1): the KORUM production and preprod projects are off limits.
-   Apply the three migrations in order (`db/migrations/0001..0003`), either with the CLI or by pasting each file into
+   Apply the migrations in order (`db/migrations/0001..0004`), either with the CLI or by pasting each file into
    the SQL editor; they are plain SQL and idempotent. Then create the login roles and seed the projects:
    ```bash
    SEO_DATABASE_URL=postgresql://postgres:...@db.xxx.supabase.co:5432/postgres python -m db.migrate
