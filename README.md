@@ -59,14 +59,18 @@ Without it those tests skip.
 
 ## Deploying
 
-1. Apply the migration and create the worker login:
+1. Create a **new, dedicated** Supabase project for the SEO system. Never install this schema into an application
+   database (Section 13.1): the KORUM production and preprod projects are off limits.
+   Apply the three migrations in order (`db/migrations/0001..0003`), either with the CLI or by pasting each file into
+   the SQL editor; they are plain SQL and idempotent. Then create the login roles and seed the projects:
    ```bash
    SEO_DATABASE_URL=postgresql://postgres:...@db.xxx.supabase.co:5432/postgres python -m db.migrate
    psql "$SEO_DATABASE_URL" -c "create role seo_worker_login login password '...' in role seo_worker;"
    psql "$SEO_DATABASE_URL" -c "create role seo_console_login login password '...' in role seo_console;"
-   python scripts/seed_projects.py
+   python scripts/seed_projects.py                 # or: python scripts/seed_projects.py --print-sql | psql "$SEO_DATABASE_URL"
    ```
    The worker connects as `seo_worker_login`, which does not bypass RLS. Never point it at the Supabase service role.
+   Acceptance check: connect as `seo_worker_login` and run `select count(*) from projects`; it must return zero.
 2. Put the per-project Search Console service-account JSON, the GitHub fix-branch token, the CMS token and the
    SMTP credentials into Azure Key Vault under the names in `config/projects/*.yaml` and `executors/*.py`.
    The worker's managed identity gets `get` on secrets and nothing else. No component holds a credential to

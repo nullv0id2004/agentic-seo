@@ -27,3 +27,23 @@ grant insert on audit_log to seo_console;
 grant update (status, approver_id, decided_at) on approvals to seo_console;
 grant execute on function current_project_id() to seo_console;
 grant execute on function list_active_projects() to seo_console;
+
+-- ============ SUPABASE HARDENING ============
+-- Supabase exposes public tables through PostgREST to the anon and authenticated roles by default.
+-- Nothing in this schema is an API. Revoke everything from those roles where they exist, including the
+-- security-definer project list, so the only way in is the worker and console database roles.
+do $$
+declare r text; t text;
+begin
+  foreach r in array array['anon', 'authenticated'] loop
+    if exists (select 1 from pg_roles where rolname = r) then
+      for t in select tablename from pg_tables where schemaname = 'public' loop
+        execute format('revoke all on table %I from %I', t, r);
+      end loop;
+      execute format('revoke execute on function list_active_projects() from %I', r);
+      execute format('revoke execute on function current_project_id() from %I', r);
+      execute format('alter default privileges in schema public revoke all on tables from %I', r);
+    end if;
+  end loop;
+  revoke execute on function list_active_projects() from public;
+end $$;
