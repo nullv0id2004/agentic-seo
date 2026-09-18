@@ -1,0 +1,13 @@
+# Runtime dependencies for Azure App Service (Linux, Python 3.12). Mirrors pyproject; Oryx installs this.
+pydantic>=2.7
+psycopg[binary,pool]>=3.1
+langgraph>=0.2
+langgraph-checkpoint-postgres>=2.0
+httpx>=0.27
+anthropic>=0.40
+pyyaml>=6.0
+selectolax>=0.3
+google-auth>=2.30
+requests>=2.31
+azure-identity>=1.17
+azure-keyvault-secrets>=4.8
