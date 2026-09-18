@@ -75,7 +75,8 @@ Without it those tests skip.
    SMTP credentials into Azure Key Vault under the names in `config/projects/*.yaml` and `executors/*.py`.
    The worker's managed identity gets `get` on secrets and nothing else. No component holds a credential to
    any application database (Section 13.1).
-3. Worker: build the `Dockerfile`, deploy to App Service, set `SEO_DATABASE_URL`, `AZURE_KEY_VAULT_URL`,
+3. Worker: every push builds `ghcr.io/<owner>/seo-agents-worker:latest` (`.github/workflows/image.yml`). Point a Linux
+   Web App for Containers at it with `WEBSITES_PORT=8080`, set `SEO_DATABASE_URL`, `AZURE_KEY_VAULT_URL`,
    `ANTHROPIC_API_KEY`, `PAGESPEED_API_KEY`, `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`, `VERCEL_WEBHOOK_SECRET`.
    Point the Vercel deploy webhook (deployment.succeeded) at `https://<worker>/webhooks/vercel`.
 4. Console: deploy `console/` to Vercel with `CONSOLE_DATABASE_URL` (the `seo_console_login` role),
