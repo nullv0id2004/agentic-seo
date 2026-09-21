@@ -24,3 +24,12 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/seo-agents-worker:latest
             ghcr.io/${{ github.repository_owner }}/seo-agents-worker:${{ github.sha }}
+      - name: Tell App Service to pull the new image
+        # Optional. Set the repository secret AZURE_CD_WEBHOOK_URL to the Deployment Center webhook URL
+        # (visible once SCM basic authentication is enabled). Without it, restart the Web App by hand.
+        env:
+          HOOK: ${{ secrets.AZURE_CD_WEBHOOK_URL }}
+        if: ${{ env.HOOK != '' }}
+        run: |
+          curl -sS -f -X POST "$HOOK" -H "Content-Type: application/json" -d '{}'
+          echo "pull triggered"
