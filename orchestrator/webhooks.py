@@ -1,4 +1,12 @@
-"""Inbound webhooks. Vercel deploy -> post_deploy_audit, keyed on the deployment id so a redelivery is a no-op."""
+"""Inbound webhooks. A production deploy -> post_deploy_audit, keyed on the deployment id so a redelivery is a no-op.
+
+Two shapes: the Vercel webhook (signed with the Vercel-issued secret) and a generic endpoint for any
+platform, called from the site's own deploy pipeline with a shared bearer secret:
+
+  POST /webhooks/deploy
+  Authorization: Bearer <DEPLOY_WEBHOOK_SECRET>
+  {"project": "korum", "deployment_id": "<commit sha or run id>", "changed_urls": ["/about", ...]}
+"""
 from __future__ import annotations
 
 import hashlib
@@ -17,6 +25,31 @@ def verify_vercel_signature(body: bytes, signature: str | None, secret: str | No
         return False
     digest = hmac.new(secret.encode(), body, hashlib.sha1).hexdigest()
     return hmac.compare_digest(digest, signature)
+
+
+def verify_bearer(header: str | None, secret: str | None) -> bool:
+    if not secret or not header or not header.lower().startswith("bearer "):
+        return False
+    return hmac.compare_digest(header[7:].strip(), secret)
+
+
+def handle_generic_deploy(rt: Runtime, payload: dict[str, Any]) -> dict[str, Any]:
+    slug = str(payload.get("project") or "").strip().lower()
+    deployment_id = str(payload.get("deployment_id") or "").strip()
+    if not slug or not deployment_id:
+        return {"ignored": "project and deployment_id are required"}
+    if payload.get("environment", "production") != "production":
+        return {"ignored": "not production"}
+    with connect(rt.db_url) as conn:
+        projects = list_active_projects(conn)
+    from contracts.project import Project
+
+    match = next((Project.from_row(r) for r in projects if r["slug"] == slug), None)
+    if match is None:
+        return {"ignored": f"no active project with slug {slug!r}"}
+    changed = [u for u in (payload.get("changed_urls") or []) if isinstance(u, str)][:200]
+    handle = run_workflow(rt, match, "post_deploy_audit", "deploy_webhook", f"deploy:{deployment_id}", {"changed_urls": changed})
+    return {"project": match.slug, "run_id": str(handle.id), "status": handle.status, "created": handle.created}
 
 
 def handle_vercel_deploy(rt: Runtime, payload: dict[str, Any]) -> dict[str, Any]:

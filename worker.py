@@ -1,6 +1,7 @@
 """Worker entrypoint for Azure App Service.
 
-Runs two things: an HTTP server for the Vercel deploy webhook and health checks, and a one-minute
+Runs two things: an HTTP server for the deploy webhooks (/webhooks/deploy for any platform with a
+bearer secret, /webhooks/vercel for Vercel's signed hook) and health checks, and a one-minute
 scheduler loop. Everything else is driven from those two.
 
   python worker.py            serve (PORT env, default 8080)
@@ -36,19 +37,30 @@ def make_handler(rt: Runtime):
             return self._json(404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path != "/webhooks/vercel":
+            from orchestrator.webhooks import (
+                handle_generic_deploy,
+                handle_vercel_deploy,
+                verify_bearer,
+                verify_vercel_signature,
+            )
+
+            if self.path not in ("/webhooks/vercel", "/webhooks/deploy"):
                 return self._json(404, {"error": "not found"})
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length)
-            from orchestrator.webhooks import handle_vercel_deploy, verify_vercel_signature
-
-            if not verify_vercel_signature(body, self.headers.get("x-vercel-signature"), os.environ.get("VERCEL_WEBHOOK_SECRET")):
-                return self._json(401, {"error": "bad signature"})
+            if self.path == "/webhooks/vercel":
+                if not verify_vercel_signature(body, self.headers.get("x-vercel-signature"), os.environ.get("VERCEL_WEBHOOK_SECRET")):
+                    return self._json(401, {"error": "bad signature"})
+                handler = handle_vercel_deploy
+            else:
+                if not verify_bearer(self.headers.get("Authorization"), os.environ.get("DEPLOY_WEBHOOK_SECRET")):
+                    return self._json(401, {"error": "bad secret"})
+                handler = handle_generic_deploy
             try:
                 payload = json.loads(body)
             except json.JSONDecodeError:
                 return self._json(400, {"error": "bad json"})
-            threading.Thread(target=handle_vercel_deploy, args=(rt, payload), daemon=True).start()
+            threading.Thread(target=handler, args=(rt, payload), daemon=True).start()
             return self._json(202, {"accepted": True})
 
         def log_message(self, fmt, *args):  # quiet

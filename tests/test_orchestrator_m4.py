@@ -9,7 +9,7 @@ from db.connection import project_scope
 from llm.fake import FakeLLM
 from orchestrator.runner import run_workflow
 from orchestrator.runtime import Runtime
-from orchestrator.webhooks import handle_vercel_deploy
+from orchestrator.webhooks import handle_generic_deploy, handle_vercel_deploy, verify_bearer
 from tests.conftest import requires_db
 from tests.fakesite import FakeSite
 
@@ -147,3 +147,14 @@ def test_resume_after_crash_does_not_duplicate_collection(worker_url, seeded):
     with project_scope(project.id, url=worker_url) as s:
         crawls = s.fetchone("select count(*) as n from agent_logs where project_id = %(project_id)s and run_id = %(id)s and agent = 'site_crawl'", {"id": handle.id})["n"]
     assert crawls == 1, "the crawl ran once; the resume started at the failed node"
+
+
+def test_generic_deploy_webhook_is_idempotent_and_production_only(worker_url, seeded):
+    rt = _rt(worker_url)
+    dep = f"sha-{uuid.uuid4().hex[:8]}"
+    first = handle_generic_deploy(rt, {"project": "korum", "deployment_id": dep, "changed_urls": ["/about"]})
+    second = handle_generic_deploy(rt, {"project": "korum", "deployment_id": dep})
+    assert first["created"] is True and second["created"] is False and first["run_id"] == second["run_id"]
+    assert "ignored" in handle_generic_deploy(rt, {"project": "korum", "deployment_id": "x", "environment": "preview"})
+    assert "ignored" in handle_generic_deploy(rt, {"project": "cruise-guru", "deployment_id": "x"})
+    assert verify_bearer("Bearer s3cret", "s3cret") and not verify_bearer("Bearer nope", "s3cret") and not verify_bearer("Bearer s3cret", None)

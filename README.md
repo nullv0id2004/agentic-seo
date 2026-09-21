@@ -86,7 +86,7 @@ Without it those tests skip.
 
 | Workflow | Trigger | Nodes |
 |---|---|---|
-| `post_deploy_audit` | Vercel deploy webhook, keyed on deployment id | header_probe, site_crawl (delta), technical_analyst, gate, approvals |
+| `post_deploy_audit` | deploy webhook (`/webhooks/deploy` with bearer `DEPLOY_WEBHOOK_SECRET`, or Vercel's signed hook), keyed on deployment id | header_probe, site_crawl (delta), technical_analyst, gate, approvals |
 | `daily_probe` / `daily_collect` | cron 07:00 / 05:30 IST | header_probe on critical paths / gsc_performance for one day |
 | `weekly_monitor` | cron Mon 06:00 IST | serp, search_status, trend_analyst, gate, report append |
 | `monthly_full` | cron 4th 06:00 IST | all collectors, all enabled analysts, gate, report, approvals digest |
