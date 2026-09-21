@@ -93,7 +93,9 @@ def _status(worker_url, project, aid):
 
 
 def test_every_approval_type_executes_and_reverses_from_stored_payload(worker_url, seeded, env):
-    gh = FakeGitHub()
+    korum = _project(worker_url, seeded, "korum")
+    rl = _project(worker_url, seeded, "rejuveluxe")
+    gh = FakeGitHub(repo=korum.github_repo)
     cms = FakeCMS()
     FakeSMTP.sent.clear()
     executors = {}
@@ -101,8 +103,6 @@ def test_every_approval_type_executes_and_reverses_from_stored_payload(worker_ur
         for a in ex.action_types:
             executors[a] = ex
     rt = Runtime(db_url=worker_url, model="fake")
-    korum = _project(worker_url, seeded, "korum")
-    rl = _project(worker_url, seeded, "rejuveluxe")
     with project_scope(rl.id, url=worker_url) as s:
         s.execute("update projects set cms_publish_url = 'https://cms.rejuveluxe.test/publish' where id = %(project_id)s")
         brief_id = s.insert("content_briefs", {"title": "Retinol basics", "answer_block": "a", "outline": [], "draft": "d", "sources": [], "status": "draft"})
@@ -158,9 +158,9 @@ def test_every_approval_type_executes_and_reverses_from_stored_payload(worker_ur
 
 
 def test_nothing_executes_without_an_approved_row(worker_url, seeded, env):
-    gh = FakeGitHub()
     rt = Runtime(db_url=worker_url, model="fake")
     korum = _project(worker_url, seeded, "korum")
+    gh = FakeGitHub(repo=korum.github_repo)
     with project_scope(korum.id, url=worker_url) as s:
         pending = approvals.queue_approval(s, uuid.uuid4(), "open_fix_pr", {"issue_type": "x", "recommended_fix": "y"}, "t", "test", {"kind": "close_pr_and_delete_branch"})
         rejected = approvals.queue_approval(s, uuid.uuid4(), "open_fix_pr", {"issue_type": "x", "recommended_fix": "y"}, "t", "test", {"kind": "close_pr_and_delete_branch"})

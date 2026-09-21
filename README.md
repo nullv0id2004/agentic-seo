@@ -77,7 +77,7 @@ Without it those tests skip.
    any application database (Section 13.1).
 3. Worker: every push builds `ghcr.io/<owner>/seo-agents-worker:latest` (`.github/workflows/image.yml`). Point a Linux
    Web App for Containers at it with `WEBSITES_PORT=8080`, set `SEO_DATABASE_URL`, `AZURE_KEY_VAULT_URL`,
-   `ANTHROPIC_API_KEY`, `PAGESPEED_API_KEY`, `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`, `VERCEL_WEBHOOK_SECRET`.
+   `SEO_LLM_PROVIDER` with `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, `PAGESPEED_API_KEY`, `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`, `VERCEL_WEBHOOK_SECRET`.
    Point the Vercel deploy webhook (deployment.succeeded) at `https://<worker>/webhooks/vercel`.
 4. Console: deploy `console/` to Vercel with `CONSOLE_DATABASE_URL` (the `seo_console_login` role),
    `CONSOLE_ACCESS_TOKEN` and `CONSOLE_APPROVER_ID`.
