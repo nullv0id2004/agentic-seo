@@ -52,20 +52,20 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 continue
             ratelimit.acquire("header_probe")
             try:
-                r = http.head(url)
+                # A crawler follows redirects, so the probe must judge the final response. Same-site hops
+                # only: a redirect off the property (to a login provider, say) ends the chain as not indexable.
+                r, hops = _follow(http, url, project.domains)
                 robots_meta = None
-                if r.status_code == 200 or r.status_code == 405:
-                    g = http.get(url)
-                    r = g
-                    if "html" in g.headers.get("content-type", ""):
-                        robots_meta = extract(g.text, url, project.domains).robots_meta
+                if r.status_code == 200 and "html" in r.headers.get("content-type", ""):
+                    robots_meta = extract(r.text, str(r.url), project.domains).robots_meta
             except Exception as e:
                 # Cannot prove the guarantee for this url: that is a gap AND a violation to surface, never a pass.
                 ctx.gap(f"probe failed: {type(e).__name__}: {e}", url)
                 pages.append({"url": url, "status_code": None, "robots_meta": None, "x_robots_tag": None, "in_sitemap": url in smap})
                 continue
             row = {"url": url, "status_code": r.status_code, "x_robots_tag": r.headers.get("x-robots-tag"),
-                   "robots_meta": robots_meta, "in_sitemap": url in smap, "canonical": r.headers.get("location") if 300 <= r.status_code < 400 else None}
+                   "robots_meta": robots_meta, "in_sitemap": url in smap,
+                   "canonical": (str(r.url) if hops else None) or (r.headers.get("location") if 300 <= r.status_code < 400 else None)}
             ctx.write("raw_crawl_pages", row)
             pages.append(row)
     violations = evaluate_critical_rules(rules, pages, smap)
@@ -74,3 +74,30 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     if violations:
         ctx.scope.audit(f"collector:{ctx.name}", "critical_rule_violation",
                         {"violations": [v.__dict__ for v in violations]}, run_id=ctx.run_id)
+
+
+MAX_HOPS = 5
+
+
+def _follow(http, url: str, domains: list[str]):
+    """GET with same-site redirects followed by hand. Returns (final response, hops taken).
+
+    A redirect to another host is returned as-is (3xx): not indexable on this property, and never fetched.
+    """
+    from collectors.html import same_site
+
+    hops = 0
+    current = url
+    while True:
+        r = http.get(current)
+        if not (300 <= r.status_code < 400) or hops >= MAX_HOPS:
+            return r, hops
+        location = r.headers.get("location")
+        if not location:
+            return r, hops
+        from urllib.parse import urljoin
+        target = normalise_url(urljoin(current, location))
+        if not same_site(target, domains):
+            return r, hops
+        current = target
+        hops += 1

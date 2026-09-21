@@ -12,13 +12,13 @@ monthly_cost_cap_usd: 50
 monthly_content_cap: 4
 enabled_agents: [technical, keyword, onpage, content, offpage, trend, report]
 allowed_schema_types: [Organization, WebSite, Article, FAQPage, BreadcrumbList]
-critical_paths: [/dashboard/, /recruiter/, /admin/, /api/health, /recruiter/inbox]
+critical_paths: [/dashboard, /dashboard/, /recruiter, /recruiter/, /recruiter/inbox, /recruiter/jobs, /admin, /admin/, /api/health]
 critical_rules:
   - key: no_indexable_auth_route
-    url_pattern: '^/(dashboard|recruiter|admin|api)/'
+    url_pattern: '^/(dashboard|recruiter|admin|api)(/|$)'
     assertion: must_noindex
   - key: auth_routes_absent_from_sitemap
-    url_pattern: '^/(dashboard|recruiter|admin)/'
+    url_pattern: '^/(dashboard|recruiter|admin)(/|$)'
     assertion: must_not_appear_in_sitemap
   - key: no_jobposting_schema
     url_pattern: '.*'

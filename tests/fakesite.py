@@ -48,6 +48,8 @@ class FakeSite:
         if path.startswith("/blog/"):
             n = path.rsplit("/", 1)[-1]
             return httpx.Response(200, text=BLOG.format(n=n, words="lorem " * 120), headers=html)
+        if path in ("/recruiter", "/dashboard", "/admin"):
+            return httpx.Response(308, headers={"location": path + "/"})
         if path.startswith("/recruiter/") or path.startswith("/dashboard/") or path.startswith("/admin/"):
             if self.leaked_inbox:
                 return httpx.Response(200, text="<html><head><title>Inbox</title></head><body>candidate data</body></html>", headers=html)

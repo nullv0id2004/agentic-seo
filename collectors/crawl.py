@@ -58,6 +58,11 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                     queue.extend(link for link in facts.internal_links if link not in seen)
             elif 300 <= r.status_code < 400:
                 row["canonical"] = r.headers.get("location")
+                if discover and row["canonical"]:
+                    from urllib.parse import urljoin
+                    target = normalise_url(urljoin(url, row["canonical"]))
+                    if same_site(target, project.domains) and target not in seen:
+                        queue.append(target)
             ctx.write("raw_crawl_pages", row)
         if queue and len(seen) >= max_pages:
             ctx.gap(f"max_pages={max_pages} reached with {len(queue)} urls still queued", "discovery truncated")

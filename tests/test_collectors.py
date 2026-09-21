@@ -133,3 +133,17 @@ def test_gsc_without_credentials_is_a_gap_not_a_crash(worker_url, seeded, monkey
         g = s.fetchone("select reason from collection_gaps where project_id = %(project_id)s and run_id = %(run_id)s", {"run_id": run_id})
     assert "SecretUnavailable" in g["reason"]
     get_settings.cache_clear()
+
+
+def test_header_probe_follows_same_site_redirects(worker_url, seeded):
+    """/admin -> 308 -> /admin/ (noindex). The probe judges the final page, so this is clean and recorded."""
+    project = _project(worker_url, seeded)
+    run_id = uuid.uuid4()
+    res = collect("header_probe", project, run_id, {"_transport": FakeSite().transport, "paths": ["/admin", "/cart"]}, db_url=worker_url)
+    assert res.detail["violations"] == []
+    with project_scope(project.id, url=worker_url) as s:
+        row = s.fetchone("select status_code, x_robots_tag, canonical from raw_crawl_pages where project_id = %(project_id)s and run_id = %(run_id)s and url = 'https://korum.worldhire.com/admin'", {"run_id": run_id})
+    assert row["status_code"] == 200 and "noindex" in row["x_robots_tag"] and row["canonical"] == "https://korum.worldhire.com/admin/"
+    # a leaked final page behind a redirect is still caught
+    res = collect("header_probe", project, uuid.uuid4(), {"_transport": FakeSite(leaked_inbox=True).transport, "paths": ["/recruiter"]}, db_url=worker_url)
+    assert [v["url"] for v in res.detail["violations"]] == ["https://korum.worldhire.com/recruiter"]
