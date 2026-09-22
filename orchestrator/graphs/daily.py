@@ -35,9 +35,14 @@ def build_daily_collect(rt: Runtime) -> StateGraph:
     def collect(state: RunState) -> RunState:
         project = rt.load_project(UUID(state["project_id"]))
         run_id = UUID(state["run_id"])
-        day = (date.today() - timedelta(days=3)).isoformat()
-        res = rt.run_collector(project, run_id, "gsc_performance", {"start_date": day, "end_date": day})
-        return {"collectors": {"gsc_performance": {"rows_written": res.rows_written, "gaps": res.gaps}}, "status": "done"}
+        # Search Console finalises a day about three days later; GA4 is complete after one.
+        gsc_day = (date.today() - timedelta(days=3)).isoformat()
+        ga4_day = (date.today() - timedelta(days=1)).isoformat()
+        out = {}
+        for name, day in (("gsc_performance", gsc_day), ("ga4", ga4_day)):
+            res = rt.run_collector(project, run_id, name, {"start_date": day, "end_date": day})
+            out[name] = {"rows_written": res.rows_written, "gaps": res.gaps}
+        return {"collectors": out, "status": "done"}
 
     g = StateGraph(RunState)
     g.add_node("collect", collect)
