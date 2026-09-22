@@ -166,6 +166,18 @@ def check_google(rt: Runtime, slug: str) -> int:
             level = sites.get(project.gsc_property or "")
             report(f"property {project.gsc_property} granted", level is not None and level != "siteUnverifiedUser",
                    f"permission={level}" if level else "not in the list: add the principal as a user on this property")
+            if level:
+                from datetime import date, timedelta
+                from urllib.parse import quote
+
+                end, start = date.today() - timedelta(days=3), date.today() - timedelta(days=30)
+                r = http.post(f"https://searchconsole.googleapis.com/webmasters/v3/sites/{quote(project.gsc_property, safe='')}/searchAnalytics/query",
+                              headers={"Authorization": f"Bearer {tokens[GSC_SCOPE]}"},
+                              json={"startDate": start.isoformat(), "endDate": end.isoformat(), "dimensions": ["date"], "rowLimit": 100})
+                days = r.json().get("rows", []) if r.status_code == 200 else []
+                report(f"Search Console data {start}..{end}", r.status_code == 200,
+                       f"{len(days)} days with data, clicks={sum(int(d['clicks']) for d in days)}, impressions={sum(int(d['impressions']) for d in days)}"
+                       if r.status_code == 200 else f"{r.status_code} {r.text[:160]}")
         if GA4_SCOPE in tokens:
             if not project.ga4_property_id:
                 report("ga4_property_id set on the project row", False, "null: set it, then run this again")
@@ -175,7 +187,8 @@ def check_google(rt: Runtime, slug: str) -> int:
                               json={"dateRanges": [{"startDate": "7daysAgo", "endDate": "yesterday"}], "metrics": [{"name": "sessions"}]})
                 total = r.json().get("rows", [{}])[0].get("metricValues", [{}])[0].get("value") if r.status_code == 200 else None
                 report(f"GA4 property {project.ga4_property_id} readable", r.status_code == 200,
-                       f"sessions last 7 days={total}" if r.status_code == 200 else f"{r.status_code} {r.text[:160]}")
+                       f"sessions last 7 days={total or 0}" + ("" if total else " (no hits recorded: is the GA4 tag installed on the site?)")
+                       if r.status_code == 200 else f"{r.status_code} {r.text[:160]}")
     print("all good" if ok else "something is not right; fix the FAIL lines above and run again")
     return 0 if ok else 1
 
