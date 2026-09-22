@@ -15,7 +15,7 @@ ROW_LIMIT = 25000
 
 
 def collect_performance(ctx: CollectorContext, params: dict[str, Any]) -> None:
-    """Pull query x page x country x device rows for a date window. Search Console lags 2-3 days;
+    """Pull page-level totals and query x page rows for a date window. Search Console lags 2-3 days;
     callers pass the window, the collector never shifts it."""
     project = ctx.project
     if not project.gsc_property:
@@ -25,10 +25,11 @@ def collect_performance(ctx: CollectorContext, params: dict[str, Any]) -> None:
     start = date.fromisoformat(params["start_date"]) if params.get("start_date") else end - timedelta(days=params.get("days", 1) - 1)
     token = access_token(project.credentials_ref, GSC_SCOPE)
     url = f"{API}/sites/{_enc(project.gsc_property)}/searchAnalytics/query"
-    # Two grains. Search Console drops anonymised (rare) queries whenever the query dimension is
-    # requested, so on a small site the query grain can be empty on a day that had impressions. The
-    # page grain (query = null) carries the complete totals; the query grain carries the keywords.
-    grains = (("page", ["date", "page", "country", "device"]), ("query", ["date", "query", "page", "country", "device"]))
+    # Two grains, and no country or device dimension: Search Console drops any row that is too granular
+    # to be anonymous, so every dimension added loses data on a small site (korum, 2026-09-19: date alone
+    # 5 days, date+page 7 rows, date+page+country+device 1 row for the week). The page grain
+    # (query = null) carries the complete totals; the query grain carries the keywords Google will show.
+    grains = (("page", ["date", "page"]), ("query", ["date", "query", "page"]))
     written = {}
     with client(transport=params.get("_transport"), headers={"Authorization": f"Bearer {token}"}) as http:
         for grain, dims in grains:
@@ -47,7 +48,7 @@ def collect_performance(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 for row in rows:
                     keys = dict(zip(dims, row["keys"], strict=True))
                     ctx.write("raw_gsc_performance", {
-                        "date": keys["date"], "query": keys.get("query"), "page": keys["page"], "country": keys["country"], "device": keys["device"],
+                        "date": keys["date"], "query": keys.get("query"), "page": keys["page"], "country": keys.get("country"), "device": keys.get("device"),
                         "clicks": row.get("clicks"), "impressions": row.get("impressions"),
                         "ctr": row.get("ctr"), "position": row.get("position"), "source": "gsc",
                     })
