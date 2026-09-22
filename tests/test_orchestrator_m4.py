@@ -170,9 +170,9 @@ def test_stage1_violations_are_stored_as_jsonb(worker_url, seeded):
     with project_scope(seeded["korum"], url=worker_url) as s:
         run_id = s.insert("runs", {"workflow": "post_deploy_audit", "trigger": "test", "status": "running",
                                    "idempotency_key": uuid.uuid4().hex})
-        page = s.fetchone("select id from raw_crawl_pages where project_id = %(project_id)s limit 1")
-    if page is None:
-        pytest.skip("needs a crawled page from an earlier test in the session")
+    with project_scope(seeded["korum"], caller="collector:site_crawl", url=worker_url) as s:
+        page = {"id": s.insert("raw_crawl_pages", {"run_id": run_id, "url": "https://korum.worldhire.com/", "status_code": 200,
+                                                    "title": "KORUM", "meta_description": None})}
     artifact = TechnicalReport(agent="technical", issues=[IssueOut(
         evidence_ref=page["id"], issue_type="thin_content", severity="medium", url="https://korum.worldhire.com/",
         evidence="the page has under 100 words", recommended_fix="Add a paragraph — then republish.", claude_code_prompt="x")])
