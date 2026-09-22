@@ -42,6 +42,11 @@ def _period(inp: AnalystInput) -> tuple[date, date, date, date]:
     return start, end, start - timedelta(days=length), start - timedelta(days=1)
 
 
+def _totals_grain(rows: list[dict]) -> list[dict]:
+    page_grain = [r for r in rows if r.get("query") is None]
+    return page_grain or rows
+
+
 def compute_metrics(inp: AnalystInput) -> tuple[list[MetricOut], list[Caveat], str, str]:
     start, end, pstart, pend = _period(inp)
     period = f"{start.isoformat()}..{end.isoformat()}"
@@ -51,8 +56,10 @@ def compute_metrics(inp: AnalystInput) -> tuple[list[MetricOut], list[Caveat], s
     metrics: list[MetricOut] = []
 
     gsc = [r for r in inp.table("raw_gsc_performance") if r.get("source", "gsc") == "gsc"]
-    cur = [r for r in gsc if start <= r["date"] <= end]
-    prev = [r for r in gsc if pstart <= r["date"] <= pend]
+    # Totals come from the page grain (query is null), which Search Console reports completely; the
+    # query grain omits anonymised queries. Older windows collected at query grain only fall back to it.
+    cur = _totals_grain([r for r in gsc if start <= r["date"] <= end])
+    prev = _totals_grain([r for r in gsc if pstart <= r["date"] <= pend])
     if "gsc_performance" in gapped or not cur:
         if "gsc_performance" not in gapped:
             caveats.append(Caveat(collector="gsc_performance", reason="no Search Console rows for the period", affected_scope=period))

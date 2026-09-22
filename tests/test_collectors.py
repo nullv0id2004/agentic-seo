@@ -1,5 +1,6 @@
 """M2 acceptance: killing the network mid-crawl produces a gap row and a partial result, never a lost run
 or a fabricated value."""
+import json
 import uuid
 
 import pytest
@@ -147,3 +148,33 @@ def test_header_probe_follows_same_site_redirects(worker_url, seeded):
     # a leaked final page behind a redirect is still caught
     res = collect("header_probe", project, uuid.uuid4(), {"_transport": FakeSite(leaked_inbox=True).transport, "paths": ["/recruiter"]}, db_url=worker_url)
     assert [v["url"] for v in res.detail["violations"]] == ["https://korum.worldhire.com/recruiter"]
+
+
+def test_gsc_collects_page_grain_totals_and_query_grain_keywords(worker_url, seeded, monkeypatch):
+    """Production 2026-09-22: 28 days with impressions in Search Console, zero rows collected, because the
+    query grain drops anonymised queries. The page grain carries the totals; the query grain the keywords."""
+    import httpx
+
+    import collectors.gsc as gsc
+
+    monkeypatch.setattr(gsc, "access_token", lambda ref, scope: "token")
+    calls = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body["dimensions"])
+        if "query" in body["dimensions"]:
+            return httpx.Response(200, json={"rows": []})  # every query on this small site is anonymised
+        return httpx.Response(200, json={"rows": [
+            {"keys": ["2026-09-19", "https://korum.worldhire.com/", "ind", "MOBILE"], "clicks": 1, "impressions": 2, "ctr": 0.5, "position": 8.0},
+            {"keys": ["2026-09-19", "https://korum.worldhire.com/jobs", "ind", "DESKTOP"], "clicks": 0, "impressions": 3, "ctr": 0, "position": 21.5},
+        ]})
+
+    project = _project(worker_url, seeded)
+    run_id = uuid.uuid4()
+    res = collect("gsc_performance", project, run_id, {"_transport": httpx.MockTransport(handle), "start_date": "2026-09-19", "end_date": "2026-09-19"}, db_url=worker_url)
+    assert not res.partial and res.rows_written == 2 and res.detail["page_rows"] == 2 and res.detail["query_rows"] == 0
+    assert calls == [["date", "page", "country", "device"], ["date", "query", "page", "country", "device"]]
+    with project_scope(project.id, url=worker_url) as s:
+        rows = s.fetchall("select query, page, impressions from raw_gsc_performance where project_id = %(project_id)s and run_id = %(run_id)s order by page", {"run_id": run_id})
+    assert [r["query"] for r in rows] == [None, None] and sum(r["impressions"] for r in rows) == 5

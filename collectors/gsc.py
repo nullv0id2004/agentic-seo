@@ -25,31 +25,37 @@ def collect_performance(ctx: CollectorContext, params: dict[str, Any]) -> None:
     start = date.fromisoformat(params["start_date"]) if params.get("start_date") else end - timedelta(days=params.get("days", 1) - 1)
     token = access_token(project.credentials_ref, GSC_SCOPE)
     url = f"{API}/sites/{_enc(project.gsc_property)}/searchAnalytics/query"
+    # Two grains. Search Console drops anonymised (rare) queries whenever the query dimension is
+    # requested, so on a small site the query grain can be empty on a day that had impressions. The
+    # page grain (query = null) carries the complete totals; the query grain carries the keywords.
+    grains = (("page", ["date", "page", "country", "device"]), ("query", ["date", "query", "page", "country", "device"]))
+    written = {}
     with client(transport=params.get("_transport"), headers={"Authorization": f"Bearer {token}"}) as http:
-        start_row = 0
-        while True:
-            ratelimit.acquire("gsc")
-            body = {
-                "startDate": start.isoformat(), "endDate": end.isoformat(),
-                "dimensions": ["date", "query", "page", "country", "device"],
-                "rowLimit": ROW_LIMIT, "startRow": start_row, "dataState": "final",
-            }
-            r = http.post(url, json=body)
-            if r.status_code != 200:
-                ctx.gap(f"searchAnalytics.query returned {r.status_code}: {r.text[:200]}", f"{start}..{end} from row {start_row}")
-                return
-            rows = r.json().get("rows", [])
-            for row in rows:
-                d, q, p, c, dev = row["keys"]
-                ctx.write("raw_gsc_performance", {
-                    "date": d, "query": q, "page": p, "country": c, "device": dev,
-                    "clicks": row.get("clicks"), "impressions": row.get("impressions"),
-                    "ctr": row.get("ctr"), "position": row.get("position"), "source": "gsc",
-                })
-            if len(rows) < ROW_LIMIT:
-                break
-            start_row += ROW_LIMIT
-    ctx.result.detail.update({"start": start.isoformat(), "end": end.isoformat()})
+        for grain, dims in grains:
+            start_row = written[grain] = 0
+            while True:
+                ratelimit.acquire("gsc")
+                body = {
+                    "startDate": start.isoformat(), "endDate": end.isoformat(), "dimensions": dims,
+                    "rowLimit": ROW_LIMIT, "startRow": start_row, "dataState": "final",
+                }
+                r = http.post(url, json=body)
+                if r.status_code != 200:
+                    ctx.gap(f"searchAnalytics.query ({grain} grain) returned {r.status_code}: {r.text[:200]}", f"{start}..{end} from row {start_row}")
+                    return
+                rows = r.json().get("rows", [])
+                for row in rows:
+                    keys = dict(zip(dims, row["keys"], strict=True))
+                    ctx.write("raw_gsc_performance", {
+                        "date": keys["date"], "query": keys.get("query"), "page": keys["page"], "country": keys["country"], "device": keys["device"],
+                        "clicks": row.get("clicks"), "impressions": row.get("impressions"),
+                        "ctr": row.get("ctr"), "position": row.get("position"), "source": "gsc",
+                    })
+                written[grain] += len(rows)
+                if len(rows) < ROW_LIMIT:
+                    break
+                start_row += ROW_LIMIT
+    ctx.result.detail.update({"start": start.isoformat(), "end": end.isoformat(), "page_rows": written["page"], "query_rows": written["query"]})
 
 
 def collect_inspection(ctx: CollectorContext, params: dict[str, Any]) -> None:
