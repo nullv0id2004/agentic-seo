@@ -24,6 +24,9 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
         "dateRanges": [{"startDate": start.isoformat(), "endDate": end.isoformat()}],
         "dimensions": [{"name": "date"}, {"name": "landingPagePlusQueryString"}, {"name": "sessionDefaultChannelGroup"}],
         "metrics": [{"name": "sessions"}, {"name": "engagedSessions"}, {"name": "conversions"}],
+        # One GA4 property can carry several hosts (worldhire.com and korum.worldhire.com share one
+        # stream). Only this project's domains count as this project's sessions.
+        "dimensionFilter": {"filter": {"fieldName": "hostName", "inListFilter": {"values": list(project.domains), "caseSensitive": False}}},
         "limit": 100000,
     }
     with client(transport=params.get("_transport"), headers={"Authorization": f"Bearer {token}"}) as http:

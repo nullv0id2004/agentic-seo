@@ -178,3 +178,33 @@ def test_gsc_collects_page_grain_totals_and_query_grain_keywords(worker_url, see
     with project_scope(project.id, url=worker_url) as s:
         rows = s.fetchall("select query, page, impressions from raw_gsc_performance where project_id = %(project_id)s and run_id = %(run_id)s order by page", {"run_id": run_id})
     assert [r["query"] for r in rows] == [None, None] and sum(r["impressions"] for r in rows) == 5
+
+
+def test_ga4_filters_to_the_project_hosts(worker_url, seeded, monkeypatch):
+    """Property 546390504 has one stream for worldhire.com and korum.worldhire.com; korum's rows must
+    only count korum's hosts."""
+    import httpx
+
+    import collectors.ga4 as ga4
+
+    monkeypatch.setattr(ga4, "access_token", lambda ref, scope: "token")
+    seen = {}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"rows": [{"dimensionValues": [{"value": "20260921"}, {"value": "/jobs"}, {"value": "Organic Search"}],
+                                                   "metricValues": [{"value": "4"}, {"value": "3"}, {"value": "0"}]}]})
+
+    project = _project(worker_url, seeded)
+    with project_scope(project.id, url=worker_url) as s:
+        s.execute("update projects set ga4_property_id = '546390504' where id = %(project_id)s")
+    project = _project(worker_url, seeded)
+    run_id = uuid.uuid4()
+    res = collect("ga4", project, run_id, {"_transport": httpx.MockTransport(handle), "start_date": "2026-09-21", "end_date": "2026-09-21"}, db_url=worker_url)
+    assert not res.partial and res.rows_written == 1
+    flt = seen["body"]["dimensionFilter"]["filter"]
+    assert flt["fieldName"] == "hostName" and flt["inListFilter"]["values"] == ["korum.worldhire.com"]
+    with project_scope(project.id, url=worker_url) as s:
+        row = s.fetchone("select date, page_path, channel, sessions from raw_ga4_daily where project_id = %(project_id)s and run_id = %(run_id)s", {"run_id": run_id})
+        s.execute("update projects set ga4_property_id = null where id = %(project_id)s")
+    assert str(row["date"]) == "2026-09-21" and row["page_path"] == "/jobs" and row["sessions"] == 4
