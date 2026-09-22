@@ -38,6 +38,16 @@ def queue_approval(scope: ProjectScope, run_id: UUID, action_type: str, payload:
     return aid
 
 
+def already_queued(scope: ProjectScope, action_type: str, issue_fingerprint: str) -> bool:
+    """True when an approval for this issue is pending, approved or already executed. A recurring issue
+    must not queue a second fix request each run."""
+    row = scope.fetchone(
+        """select 1 as x from approvals where project_id = %(project_id)s and action_type = %(action)s
+            and payload->>'issue_fingerprint' = %(fp)s and status in ('pending', 'approved', 'executed') limit 1""",
+        {"action": action_type, "fp": issue_fingerprint})
+    return row is not None
+
+
 def decide(scope: ProjectScope, approval_id: UUID, approver_id: UUID, approve: bool) -> dict[str, Any]:
     row = scope.fetchone("select * from approvals where project_id = %(project_id)s and id = %(id)s", {"id": approval_id})
     if not row or row["status"] != "pending":

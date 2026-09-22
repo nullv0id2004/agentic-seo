@@ -10,7 +10,7 @@ from uuid import UUID
 from langgraph.graph import END, StateGraph
 
 from orchestrator import approvals, critical, notify
-from orchestrator.gate_runner import analyse_and_gate
+from orchestrator.gate_runner import analyse_and_gate, issue_fingerprint, resolve_unseen_issues
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
 
@@ -68,6 +68,10 @@ def build(rt: Runtime) -> StateGraph:
                 issues.extend(res["written"])
             if agent == "report" and res["written"]:
                 report_id = res["written"][0]
+        emitted = [artifacts[a] for a in ("technical", "ecommerce") if artifacts.get(a) and not gate.get(a, {}).get("blocked")]
+        if emitted:
+            with rt.scope(project.id) as s:
+                resolve_unseen_issues(s, run_id, emitted)
         return {"gate": gate, "artifacts": artifacts, "issues": issues, "report_id": report_id}
 
     def digest(state: RunState) -> RunState:
@@ -79,9 +83,12 @@ def build(rt: Runtime) -> StateGraph:
                 art = state.get("artifacts", {}).get(agent) or {}
                 for issue in art.get("issues", []):
                     if issue["severity"] in ("critical", "high") and issue.get("claude_code_prompt"):
+                        fp = issue_fingerprint(issue)
+                        if approvals.already_queued(s, "open_fix_pr", fp):
+                            continue
                         aid = approvals.queue_approval(
                             s, run_id, "open_fix_pr",
-                            {"issue_type": issue["issue_type"], "url": issue.get("url"), "claude_code_prompt": issue["claude_code_prompt"],
+                            {"issue_fingerprint": fp, "issue_type": issue["issue_type"], "url": issue.get("url"), "claude_code_prompt": issue["claude_code_prompt"],
                              "recommended_fix": issue["recommended_fix"], "evidence_ref": issue.get("evidence_ref")},
                             f"Open a fix PR for {issue['issue_type']} ({issue['severity']}) on {issue.get('url') or 'a protected route'}: {issue['recommended_fix']}",
                             f"analyst:{agent}", {"kind": "close_pr_and_delete_branch", "pr_number": None, "branch": None},

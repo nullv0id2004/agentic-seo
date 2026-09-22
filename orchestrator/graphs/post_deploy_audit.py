@@ -10,7 +10,7 @@ from uuid import UUID
 from langgraph.graph import END, StateGraph
 
 from orchestrator import approvals, critical
-from orchestrator.gate_runner import write_issues
+from orchestrator.gate_runner import issue_fingerprint, resolve_unseen_issues, write_issues
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
 
@@ -54,6 +54,7 @@ def build(rt: Runtime) -> StateGraph:
         if not result.blocked:
             with rt.scope(project.id) as s:
                 ids = write_issues(s, run_id, result.artifact)
+                resolve_unseen_issues(s, run_id, [result.artifact])
             out["issues"] = [str(i) for i in ids]
             out["artifacts"] = {**state.get("artifacts", {}), "technical": result.artifact}
         return out
@@ -68,9 +69,12 @@ def build(rt: Runtime) -> StateGraph:
         with rt.scope(project.id) as s:
             for issue_id, issue in zip(state.get("issues", []), issues, strict=False):
                 if issue["severity"] in ("critical", "high") and issue.get("claude_code_prompt"):
+                    fp = issue_fingerprint(issue)
+                    if approvals.already_queued(s, "open_fix_pr", fp):
+                        continue
                     aid = approvals.queue_approval(
                         s, run_id, "open_fix_pr",
-                        {"issue_id": issue_id, "issue_type": issue["issue_type"], "url": issue.get("url"),
+                        {"issue_id": issue_id, "issue_fingerprint": fp, "issue_type": issue["issue_type"], "url": issue.get("url"),
                          "claude_code_prompt": issue["claude_code_prompt"], "recommended_fix": issue["recommended_fix"]},
                         f"Open a fix PR for {issue['issue_type']} ({issue['severity']}) on {issue.get('url') or 'a protected route'}: {issue['recommended_fix']}",
                         "analyst:technical", {"kind": "close_pr_and_delete_branch", "pr_number": None, "branch": None},

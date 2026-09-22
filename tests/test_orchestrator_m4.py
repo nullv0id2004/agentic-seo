@@ -46,11 +46,11 @@ def test_deploy_webhook_produces_issues_with_resolving_evidence(worker_url, seed
     run_id = uuid.UUID(out["run_id"])
     with project_scope(seeded["korum"], url=worker_url) as s:
         run = s.fetchone("select status, cost_usd, tokens_in from runs where project_id = %(project_id)s and id = %(id)s", {"id": run_id})
-        issues = s.fetchall("select issue_type, severity, url, evidence_ref, claude_code_prompt from issues where project_id = %(project_id)s and run_id = %(id)s", {"id": run_id})
+        issues = s.fetchall("select issue_type, severity, url, evidence_ref, claude_code_prompt from issues where project_id = %(project_id)s and last_run_id = %(id)s", {"id": run_id})
         gate = s.fetchone("select stage1_violations, stage2_verdict from gate_results where project_id = %(project_id)s and run_id = %(id)s", {"id": run_id})
         resolving = s.fetchall(
             "select i.id from issues i join raw_crawl_pages r on r.id = i.evidence_ref and r.project_id = i.project_id "
-            "where i.project_id = %(project_id)s and i.run_id = %(id)s", {"id": run_id})
+            "where i.project_id = %(project_id)s and i.last_run_id = %(id)s", {"id": run_id})
     assert run["status"] == "done", run
     assert float(run["cost_usd"]) > 0 and run["tokens_in"] > 0, "cost accounting from agent_logs"
     assert issues, "the fake site has thin pages, missing meta descriptions and so on"
@@ -110,7 +110,7 @@ def test_leaked_route_pages_owner_and_queues_critical_approval(worker_url, seede
     with project_scope(seeded["korum"], url=worker_url) as s:
         crit = s.fetchall("select action_type, severity, reversal_payload from approvals where project_id = %(project_id)s and run_id = %(id)s and severity = 'critical'", {"id": handle.id})
         notified = s.fetchall("select detail from audit_log where project_id = %(project_id)s and run_id = %(id)s and event = 'notified'", {"id": handle.id})
-        issues = s.fetchall("select issue_type, severity, url from issues where project_id = %(project_id)s and run_id = %(id)s and issue_type = 'critical_rule_violation'", {"id": handle.id})
+        issues = s.fetchall("select issue_type, severity, url from issues where project_id = %(project_id)s and last_run_id = %(id)s and issue_type = 'critical_rule_violation'", {"id": handle.id})
     assert any(a["action_type"] == "page_owner" for a in crit)
     assert any("CRITICAL" in n["detail"]["subject"] for n in notified)
     assert issues and all(i["url"] is None for i in issues), "leaked path is cited by raw row id, never spelled out"
@@ -181,3 +181,50 @@ def test_stage1_violations_are_stored_as_jsonb(worker_url, seeded):
     with project_scope(seeded["korum"], url=worker_url) as s:
         gate = s.fetchone("select stage1_violations from gate_results where project_id = %(project_id)s and run_id = %(id)s", {"id": run_id})
     assert isinstance(gate["stage1_violations"], list) and gate["stage1_violations"][0]["severity"] == "block"
+
+
+def test_recurring_issues_are_one_row_and_one_approval(worker_url, seeded):
+    """Two audits of the same site: the second touches the same rows instead of inserting new ones, and
+    does not queue a second fix request for an issue that already has one."""
+    rt = _rt(worker_url)
+    project = _project(worker_url, seeded)
+    first = run_workflow(rt, project, "post_deploy_audit", "test", f"deploy:{uuid.uuid4().hex[:8]}")
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        n1 = s.fetchone("select count(*) as n from issues where project_id = %(project_id)s and status = 'open'")["n"]
+        a1 = s.fetchone("select count(*) as n from approvals where project_id = %(project_id)s and action_type = 'open_fix_pr' and status = 'pending'")["n"]
+        thin = [r["id"] for r in s.fetchall("select id from issues where project_id = %(project_id)s and issue_type = 'thin_content' and last_run_id = %(id)s", {"id": first.id})]
+        s.execute("update issues set status = 'resolved', resolved_at = now() where project_id = %(project_id)s and id = any(%(ids)s)", {"ids": thin})
+    second = run_workflow(rt, project, "post_deploy_audit", "test", f"deploy:{uuid.uuid4().hex[:8]}")
+    assert first.status == "done" and second.status == "done"
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        rows = s.fetchall("select id, issue_type, status, seen_count, run_id, last_run_id from issues where project_id = %(project_id)s")
+        a2 = s.fetchone("select count(*) as n from approvals where project_id = %(project_id)s and action_type = 'open_fix_pr' and status = 'pending'")["n"]
+    # rows from other tests' sites (vitals issues, redacted protected routes) stay untouched; every row this
+    # test's first run wrote must have been touched again by the second, not inserted anew
+    mine = [r for r in rows if r["last_run_id"] in (first.id, second.id) and r["status"] == "open"]
+    assert n1 > 0 and mine and not any(r["run_id"] == second.id for r in rows), "no new rows on a repeat audit"
+    assert all(r["seen_count"] >= 2 and r["last_run_id"] == second.id for r in mine)
+    assert thin and all(r["status"] == "open" for r in rows if r["id"] in thin), "a resolved issue seen again is reopened"
+    assert a2 == a1, "an issue with a pending fix request does not get another"
+
+
+def test_issue_gone_from_a_crawled_page_is_resolved(worker_url, seeded):
+    from orchestrator.gate_runner import resolve_unseen_issues, write_issues
+
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        run_a = s.insert("runs", {"workflow": "post_deploy_audit", "trigger": "test", "status": "done", "idempotency_key": uuid.uuid4().hex})
+        run_b = s.insert("runs", {"workflow": "post_deploy_audit", "trigger": "test", "status": "done", "idempotency_key": uuid.uuid4().hex})
+    with project_scope(seeded["korum"], caller="collector:site_crawl", url=worker_url) as s:
+        page_a = s.insert("raw_crawl_pages", {"run_id": run_a, "url": "https://korum.worldhire.com/x", "status_code": 200})
+        page_b = s.insert("raw_crawl_pages", {"run_id": run_b, "url": "https://korum.worldhire.com/x", "status_code": 200})
+        s.insert("raw_crawl_pages", {"run_id": run_b, "url": "https://korum.worldhire.com/y", "status_code": 200})
+    issue = lambda t, ref: {"issue_type": t, "severity": "low", "url": "https://korum.worldhire.com/x", "evidence": "e", "evidence_ref": str(ref)}  # noqa: E731
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        write_issues(s, run_a, {"issues": [issue("missing_h1", page_a), issue("missing_title", page_a)]})
+        write_issues(s, run_a, {"issues": [{**issue("lcp_slow", page_a), "severity": "high"}]})
+        # run b crawled /x again and only missing_title persists; lcp_slow is vitals-based and must be left alone
+        write_issues(s, run_b, {"issues": [issue("missing_title", page_b)]})
+        n = resolve_unseen_issues(s, run_b, [{"issues": [issue("missing_title", page_b)]}])
+        rows = {r["issue_type"]: r["status"] for r in s.fetchall("select issue_type, status from issues where project_id = %(project_id)s and url = 'https://korum.worldhire.com/x'")}
+    assert n == 1
+    assert rows == {"missing_h1": "resolved", "missing_title": "open", "lcp_slow": "open"}

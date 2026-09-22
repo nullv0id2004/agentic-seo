@@ -1,22 +1,74 @@
 """Persist gated artifacts into derived tables, and run analyst -> stage 1 -> stage 2 -> persist as one step."""
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 from uuid import UUID
 
 from db.connection import ProjectScope, jsonb
 from orchestrator.runtime import Runtime
 
+# issue types that rest on raw_crawl_pages alone; an audit that crawled a URL and did not emit one of
+# these for it has shown the issue is gone. Vitals-based types are not here: a run without raw_vitals
+# says nothing about LCP.
+CRAWL_ISSUE_TYPES = frozenset({
+    "critical_rule_violation", "disallowed_schema_type", "canonical_loop", "orphaned_pillar_page", "redirect_chain",
+    "broken_internal_links", "duplicate_title", "sitemap_url_not_200", "missing_title", "missing_meta_description",
+    "missing_h1", "multiple_h1", "thin_content", "missing_canonical",
+    "offer_schema_incomplete", "out_of_stock_without_handling", "product_price_matches_schema", "variant_canonical",
+})
+
+
+def issue_fingerprint(issue: dict[str, Any]) -> str:
+    """Identity of an issue across runs. Must match the backfill expression in migration 0005."""
+    key = issue.get("url") or issue["evidence"]
+    return hashlib.sha256(f"{issue['issue_type']}|{key}".encode()).hexdigest()
+
 
 def write_issues(scope: ProjectScope, run_id: UUID, artifact: dict[str, Any]) -> list[UUID]:
+    """Upsert one row per (project, fingerprint). A recurring issue keeps its id and first run_id, gets
+    the latest evidence and fix text, and is reopened if it had been resolved. A dismissed issue stays
+    dismissed: the operator said so. Returns ids in artifact order so callers can zip them with issues."""
     ids: list[UUID] = []
     for issue in artifact.get("issues", []):
-        ids.append(scope.insert("issues", {
-            "run_id": run_id, "url": issue.get("url"), "issue_type": issue["issue_type"], "severity": issue["severity"],
-            "evidence": issue["evidence"], "evidence_ref": issue.get("evidence_ref"),
-            "recommended_fix": issue.get("recommended_fix"), "claude_code_prompt": issue.get("claude_code_prompt"),
-        }))
+        row = scope.fetchone(
+            """insert into issues (project_id, run_id, last_run_id, fingerprint, url, issue_type, severity, evidence, evidence_ref,
+                                   recommended_fix, claude_code_prompt)
+               values (%(project_id)s, %(run_id)s, %(run_id)s, %(fp)s, %(url)s, %(issue_type)s, %(severity)s, %(evidence)s, %(evidence_ref)s,
+                       %(recommended_fix)s, %(claude_code_prompt)s)
+               on conflict (project_id, fingerprint) do update set
+                 last_run_id = excluded.last_run_id, last_seen_at = now(), seen_count = issues.seen_count + 1,
+                 severity = excluded.severity, evidence = excluded.evidence, evidence_ref = excluded.evidence_ref,
+                 recommended_fix = excluded.recommended_fix, claude_code_prompt = excluded.claude_code_prompt,
+                 status = case when issues.status = 'resolved' then 'open' else issues.status end,
+                 resolved_at = case when issues.status = 'resolved' then null else issues.resolved_at end
+               returning id""",
+            {"run_id": run_id, "fp": issue_fingerprint(issue), "url": issue.get("url"), "issue_type": issue["issue_type"],
+             "severity": issue["severity"], "evidence": issue["evidence"], "evidence_ref": issue.get("evidence_ref"),
+             "recommended_fix": issue.get("recommended_fix"), "claude_code_prompt": issue.get("claude_code_prompt")},
+        )
+        ids.append(row["id"])
     return ids
+
+
+def resolve_unseen_issues(scope: ProjectScope, run_id: UUID, artifacts: list[dict[str, Any]]) -> int:
+    """Close open crawl-based issues on URLs this run crawled but did not flag again. Deterministic: the
+    raw_crawl_pages rows of this run are the evidence that the page was looked at."""
+    seen = [issue_fingerprint(i) for a in artifacts for i in a.get("issues", [])]
+    crawled = [r["url"] for r in scope.fetchall(
+        "select url from raw_crawl_pages where project_id = %(project_id)s and run_id = %(run_id)s", {"run_id": run_id})]
+    if not crawled:
+        return 0
+    cur = scope.execute(
+        """update issues set status = 'resolved', resolved_at = now()
+            where project_id = %(project_id)s and status = 'open' and issue_type = any(%(types)s)
+              and url = any(%(crawled)s) and not (fingerprint = any(%(seen)s))""",
+        {"types": sorted(CRAWL_ISSUE_TYPES), "crawled": crawled, "seen": seen},
+    )
+    n = cur.rowcount
+    if n:
+        scope.audit("orchestrator", "issues_resolved", {"count": n}, run_id)
+    return n
 
 
 def write_trend_events(scope: ProjectScope, run_id: UUID, artifact: dict[str, Any]) -> list[UUID]:

@@ -12,7 +12,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
   const id = str(project.id);
   const data = await withProject(id, async (q) => ({
     runs: await q("select id, workflow, trigger, status, started_at, ended_at, cost_usd, halt_reason from runs where project_id = $1 order by started_at desc limit 20"),
-    issues: await q("select id, severity, issue_type, url, evidence, recommended_fix, created_at from issues where project_id = $1 and status = 'open' order by array_position(array['critical','high','medium','low'], severity), created_at desc limit 100"),
+    issues: await q("select id, severity, issue_type, url, evidence, recommended_fix, created_at, last_seen_at, seen_count from issues where project_id = $1 and status = 'open' order by array_position(array['critical','high','medium','low'], severity), last_seen_at desc limit 100"),
     gaps: await q("select collector, reason, affected_scope, created_at from collection_gaps where project_id = $1 order by created_at desc limit 30"),
     reports: await q("select id, period, created_at, caveats from reports where project_id = $1 order by created_at desc limit 12"),
     trends: await q("select kind, name, source_url, observed_on, detail from trend_events where project_id = $1 order by observed_on desc limit 20"),
@@ -56,7 +56,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
 
       <h2>Open issues</h2>
       <table>
-        <thead><tr><th>Severity</th><th>Type</th><th>URL</th><th>Evidence</th><th>Recommended fix</th></tr></thead>
+        <thead><tr><th>Severity</th><th>Type</th><th>URL</th><th>Evidence</th><th>Recommended fix</th><th>Seen</th></tr></thead>
         <tbody>
           {data.issues.map((i) => (
             <tr key={str(i.id)}>
@@ -65,9 +65,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
               <td>{i.url ? str(i.url) : <em className="muted">protected route (see raw row)</em>}</td>
               <td>{str(i.evidence)}</td>
               <td>{str(i.recommended_fix)}</td>
+              <td className="muted">{str(i.seen_count)}x, last {fmtDate(i.last_seen_at)}</td>
             </tr>
           ))}
-          {data.issues.length === 0 && <tr><td colSpan={5} className="muted">none</td></tr>}
+          {data.issues.length === 0 && <tr><td colSpan={6} className="muted">none</td></tr>}
         </tbody>
       </table>
 

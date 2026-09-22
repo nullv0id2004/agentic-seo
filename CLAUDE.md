@@ -13,4 +13,4 @@ Read the build spec's Section 13 before changing anything. Hard prohibitions the
 - The content cap (`projects.monthly_content_cap`) is deliberately low. Do not raise it or the contract's ceiling.
 - Cruise Guru is not a tenant. Do not add a project row for it.
 - Changing the fixture generator requires regenerating `evals/adversarial/cases/` and committing; a test pins them.
-- Migrations 0001 to 0004 are applied to the production SEO database (Supabase project `Agentic-seo`, ref `hsqssnbpuvvudevvvtvl`). Never edit them; add numbered migrations. Never apply anything to the `Korum` or `korum-preprod` Supabase projects: those are application databases (Section 13.1).
+- Migrations 0001 to 0005 are applied to the production SEO database (Supabase project `Agentic-seo`, ref `hsqssnbpuvvudevvvtvl`). Never edit them; add numbered migrations. Never apply anything to the `Korum` or `korum-preprod` Supabase projects: those are application databases (Section 13.1).
