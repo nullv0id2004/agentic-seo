@@ -17,7 +17,7 @@ from collectors.base import CollectorResult
 from collectors.registry import collect as _collect
 from config.settings import get_settings
 from contracts.project import Project
-from db.connection import ProjectScope, project_scope
+from db.connection import ProjectScope, jsonb, project_scope
 from gate.evidence import load_project_rules, make_resolver
 from gate.stage1_rules import Stage1Result, run_stage1
 from llm.client import LLMClient
@@ -132,7 +132,7 @@ class Runtime:
             result = run_stage1(agent, artifact, rules, make_resolver(s))
             s.insert("gate_results", {
                 "run_id": run_id, "source_agent": agent, "artifact_ref": artifact_ref,
-                "stage1_violations": [v.as_dict() for v in result.violations],
+                "stage1_violations": jsonb([v.as_dict() for v in result.violations]),
                 "stage2_verdict": "blocked" if result.blocked else None,
                 "detail": {"dropped": result.dropped, "blocked": result.blocked, "stage": 1},
             })
@@ -151,7 +151,7 @@ class Runtime:
             verifier = get_settings().verifier_model
             result = run_stage2(artifact, docs, self.get_llm() if refs else None, model=verifier)
             s.insert("gate_results", {
-                "run_id": run_id, "source_agent": agent, "artifact_ref": artifact_ref, "stage1_violations": [],
+                "run_id": run_id, "source_agent": agent, "artifact_ref": artifact_ref, "stage1_violations": jsonb([]),
                 "stage2_verdict": result.verdict, "claims_verified": result.claims_verified, "claims_cut": result.claims_cut,
                 "detail": {"stage": 2, "claims": [c.__dict__ for c in result.claims], "findings": result.findings},
             })

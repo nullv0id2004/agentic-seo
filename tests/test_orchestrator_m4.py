@@ -158,3 +158,26 @@ def test_generic_deploy_webhook_is_idempotent_and_production_only(worker_url, se
     assert "ignored" in handle_generic_deploy(rt, {"project": "korum", "deployment_id": "x", "environment": "preview"})
     assert "ignored" in handle_generic_deploy(rt, {"project": "cruise-guru", "deployment_id": "x"})
     assert verify_bearer("Bearer s3cret", "s3cret") and not verify_bearer("Bearer nope", "s3cret") and not verify_bearer("Bearer s3cret", None)
+
+
+def test_stage1_violations_are_stored_as_jsonb(worker_url, seeded):
+    """Regression: the first production audit failed with "cannot adapt type 'dict'" because a
+    non-empty violation list was sent as a Postgres array instead of jsonb."""
+    from contracts.artifacts import IssueOut, TechnicalReport
+
+    rt = _rt(worker_url)
+    project = _project(worker_url, seeded)
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        run_id = s.insert("runs", {"workflow": "post_deploy_audit", "trigger": "test", "status": "running",
+                                   "idempotency_key": uuid.uuid4().hex})
+        page = s.fetchone("select id from raw_crawl_pages where project_id = %(project_id)s limit 1")
+    if page is None:
+        pytest.skip("needs a crawled page from an earlier test in the session")
+    artifact = TechnicalReport(agent="technical", issues=[IssueOut(
+        evidence_ref=page["id"], issue_type="thin_content", severity="medium", url="https://korum.worldhire.com/",
+        evidence="the page has under 100 words", recommended_fix="Add a paragraph — then republish.", claude_code_prompt="x")])
+    result = rt.run_gate_stage1(project, run_id, "technical", artifact)
+    assert result.blocked
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        gate = s.fetchone("select stage1_violations from gate_results where project_id = %(project_id)s and run_id = %(id)s", {"id": run_id})
+    assert isinstance(gate["stage1_violations"], list) and gate["stage1_violations"][0]["severity"] == "block"
