@@ -182,3 +182,29 @@ def test_nested_jsonld_types_of_an_allowed_parent_are_not_disallowed():
     assert {"Question", "Answer", "ListItem", "SearchAction"} <= allowed
     assert "JobPosting" not in allowed and "Product" not in allowed
     assert allowed_schema_types(None) == set(), "no declared list means the check is off"
+
+
+def test_onpage_checks_skip_non_html_and_header_noindex_pages(worker_url, seeded):
+    """Production run b056869d: sitemap.xml and security.txt were told to add a title and an h1, and the
+    login pages, noindex by X-Robots-Tag only, were flagged thin and duplicate-titled."""
+    from analysts.technical import detect
+
+    project = _project(worker_url, seeded, "korum")
+    ids = [uuid.uuid4() for _ in range(4)]
+    rows = {"critical_rules": [], "raw_vitals": [], "raw_sitemap_urls": [], "raw_crawl_pages": [
+        {"id": ids[0], "url": "https://korum.worldhire.com/sitemap.xml", "status_code": 200, "word_count": None, "title": None, "h1": []},
+        {"id": ids[1], "url": "https://korum.worldhire.com/login", "status_code": 200, "word_count": 12, "title": "KORUM",
+         "h1": ["Sign in"], "x_robots_tag": "noindex, nofollow", "robots_meta": "index, follow", "meta_description": None, "canonical": None},
+        {"id": ids[2], "url": "https://korum.worldhire.com/", "status_code": 200, "word_count": 800, "title": "KORUM",
+         "h1": ["Hire"], "meta_description": "d", "canonical": "https://korum.worldhire.com/"},
+        {"id": ids[3], "url": "https://korum.worldhire.com/jobs", "status_code": 200, "word_count": 40, "title": "KORUM",
+         "h1": ["Jobs"], "meta_description": "d", "canonical": "https://korum.worldhire.com/jobs"},
+    ]}
+    found = detect(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
+    by_ref = {}
+    for f in found:
+        by_ref.setdefault(f.evidence_ref, []).append(f.issue_type)
+    assert ids[0] not in by_ref, "non-HTML response gets no on-page issues"
+    assert ids[1] not in by_ref, "header-noindex page gets no on-page issues"
+    assert sorted(by_ref[ids[2]]) == ["duplicate_title"]
+    assert sorted(by_ref[ids[3]]) == ["duplicate_title", "thin_content"]

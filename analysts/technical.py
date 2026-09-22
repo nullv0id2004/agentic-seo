@@ -139,13 +139,13 @@ def detect(inp: AnalystInput) -> list[Detected]:
         broken = [link for link in p.get("internal_links") or [] if link in by_url and (by_url[link].get("status_code") or 0) >= 400]
         if broken:
             out.append(Detected("broken_internal_links", "medium", redact(p["url"]), f"{len(broken)} internal link(s) return 4xx/5xx, first: {redact(broken[0]) or '[protected path]'}", p["id"]))
-    titles: Counter[str] = Counter(p["title"] for p in pages if p.get("title") and p.get("status_code") == 200)
+    titles: Counter[str] = Counter(p["title"] for p in pages if p.get("title") and _indexable_html(p))
     for p in pages:
-        if p.get("title") and titles[p["title"]] > 1:
+        if _indexable_html(p) and p.get("title") and titles[p["title"]] > 1:
             out.append(Detected("duplicate_title", "medium", redact(p["url"]), f"title {p['title']!r} shared by {titles[p['title']]} pages", p["id"]))
-    # low: everything else
+    # low: on-page checks, only for pages that can rank (200, HTML, not noindex by meta or header)
     for p in pages:
-        if p.get("status_code") != 200 or p.get("robots_meta") and "noindex" in (p.get("robots_meta") or ""):
+        if not _indexable_html(p):
             if p.get("in_sitemap") and p.get("status_code") != 200:
                 out.append(Detected("sitemap_url_not_200", "low", redact(p["url"]), f"sitemap url returned {p.get('status_code')}", p["id"]))
             continue
@@ -163,6 +163,15 @@ def detect(inp: AnalystInput) -> list[Detected]:
         if not p.get("canonical"):
             out.append(Detected("missing_canonical", "low", redact(p["url"]), "no canonical link", p["id"]))
     return [d for d in out if d.evidence_ref is not None]
+
+
+def _indexable_html(p: dict[str, Any]) -> bool:
+    """200, parsed as HTML (the crawler leaves word_count null for non-HTML bodies such as sitemap.xml or
+    security.txt), and not noindex by either the robots meta or the X-Robots-Tag header."""
+    if p.get("status_code") != 200 or p.get("word_count") is None:
+        return False
+    robots = f"{p.get('robots_meta') or ''} {p.get('x_robots_tag') or ''}".lower()
+    return "noindex" not in robots
 
 
 def _depth(url: str) -> int:
