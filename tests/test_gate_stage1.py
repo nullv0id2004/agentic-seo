@@ -35,6 +35,17 @@ def test_em_dash_blocked_on_korum_and_rejuveluxe():
         assert r.blocked and any(v.check == "brand" and "—" in v.detail for v in r.violations)
 
 
+def test_urls_are_not_brand_swept():
+    """Production run f900c35c: four issues were blocked because their url was /login/candidate."""
+    art = onpage("Shorter title", url="https://korum.worldhire.com/login/candidate")
+    r = run_stage1("onpage", art, KORUM, RESOLVE_ALL)
+    assert not any(v.check == "brand" for v in r.violations), r.violations
+    inline = onpage("Point /login/candidate at the job seeker flow")
+    assert not any(v.check == "brand" for v in run_stage1("onpage", inline, KORUM, RESOLVE_ALL).violations)
+    prose = onpage("Candidate login")
+    assert run_stage1("onpage", prose, KORUM, RESOLVE_ALL).blocked
+
+
 def test_en_dash_and_hyphen_pass():
     for text in ("Hiring – done right", "Hiring - done right"):
         assert not run_stage1("onpage", onpage(text), KORUM, RESOLVE_ALL).blocked

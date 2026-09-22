@@ -92,10 +92,13 @@ def run_stage1(agent: str, artifact: BaseModel | dict[str, Any], rules: ProjectR
     for path, value in _string_leaves(data):
         if _leaf_name(path) in QUOTED_FIELDS:
             continue
+        # URLs are the site's own paths, not copy: '/login/candidate' must not trip a phrase ban.
+        # The url_allowlist check below still sees every URL.
+        copy = URL_LIKE.sub(" ", value)
         for rule in rules.brand_rules:
             if not rule.get("active", True):
                 continue
-            hit = _brand_hit(rule, value)
+            hit = _brand_hit(rule, copy)
             if hit:
                 violations.append(Violation("brand", rule["severity"], path, f"{rule['rule_type']} {rule['pattern']!r} matched {hit!r}"))
     required = [r for r in rules.brand_rules if r.get("active", True) and r["rule_type"] == "required_phrase"]
