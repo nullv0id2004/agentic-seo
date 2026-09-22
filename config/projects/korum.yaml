@@ -3,7 +3,7 @@ display_name: KORUM
 vertical: recruitment
 domains: [korum.worldhire.com]
 gsc_property: sc-domain:korum.worldhire.com
-ga4_property_id: null
+ga4_property_id: '546390504'
 credentials_ref: gsc-korum-service-account
 github_repo: nullv0id2004/Worldhire2.0-1-
 cms_publish_url: null
