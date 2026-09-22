@@ -171,3 +171,14 @@ def test_quarterly_keyword_end_to_end(worker_url, seeded):
     rs = next(m for m in metrics if m["keyword"] == "recruiter software")
     assert rs["volume"] is None and rs["volume_is_range"] and rs["volume_low"] == 100
     assert any(g["affected_scope"] == "job board india" for g in gaps), "a keyword with no metric is a gap, not a zero"
+
+
+def test_nested_jsonld_types_of_an_allowed_parent_are_not_disallowed():
+    """Production run b056869d: 46 'critical' issues flagged Question, Answer and ListItem on korum,
+    which are the children FAQPage and BreadcrumbList are made of."""
+    from analysts.technical import allowed_schema_types
+
+    allowed = allowed_schema_types(["Organization", "WebSite", "Article", "FAQPage", "BreadcrumbList"])
+    assert {"Question", "Answer", "ListItem", "SearchAction"} <= allowed
+    assert "JobPosting" not in allowed and "Product" not in allowed
+    assert allowed_schema_types(None) == set(), "no declared list means the check is off"

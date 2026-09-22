@@ -26,6 +26,29 @@ INP_MS = 200
 CLS = 0.1
 THIN_WORDS = 100
 
+# Nested nodes that an allowed top-level type is made of. The crawler records every @type in a page's
+# JSON-LD, nested ones included, so FAQPage must bring Question and Answer with it. Deterministic rule,
+# not a prompt: a type is disallowed only if neither it nor any allowed parent covers it.
+SCHEMA_CHILDREN: dict[str, frozenset[str]] = {
+    "FAQPage": frozenset({"Question", "Answer"}),
+    "BreadcrumbList": frozenset({"ListItem"}),
+    "ItemList": frozenset({"ListItem"}),
+    "Article": frozenset({"Person", "Organization", "ImageObject", "WebPage"}),
+    "BlogPosting": frozenset({"Person", "Organization", "ImageObject", "WebPage"}),
+    "WebSite": frozenset({"SearchAction", "EntryPoint", "Organization"}),
+    "WebPage": frozenset({"Organization", "Person", "ImageObject"}),
+    "Organization": frozenset({"PostalAddress", "ContactPoint", "ImageObject"}),
+    "LocalBusiness": frozenset({"PostalAddress", "ContactPoint", "ImageObject", "GeoCoordinates", "OpeningHoursSpecification"}),
+    "Product": frozenset({"Offer", "AggregateOffer", "AggregateRating", "Review", "Rating", "Brand", "ImageObject", "Person", "Organization"}),
+}
+
+
+def allowed_schema_types(declared: list[str] | None) -> set[str]:
+    allowed = set(declared or [])
+    for t in list(allowed):
+        allowed |= SCHEMA_CHILDREN.get(t, frozenset())
+    return allowed
+
 
 @dataclass
 class Detected:
@@ -81,12 +104,12 @@ def detect(inp: AnalystInput) -> list[Detected]:
         out.append(Detected("critical_rule_violation", "critical", redact(v.url),
                             f"rule {v.rule_key} ({v.assertion}) violated: {v.detail}", row["id"] if row else None))
     # critical: disallowed JSON-LD types; schema contradicting content
-    allowed = set(project.allowed_schema_types or [])
+    allowed = allowed_schema_types(project.allowed_schema_types)
     for p in pages:
         for t in p.get("schema_types") or []:
             if allowed and t not in allowed:
                 out.append(Detected("disallowed_schema_type", "critical", redact(p["url"]),
-                                    f"JSON-LD type {t} is not in the allowed list {sorted(allowed)}", p["id"]))
+                                    f"JSON-LD type {t} is not in the allowed list {sorted(project.allowed_schema_types or [])}", p["id"]))
     # high: vitals
     for v in vitals:
         if v.get("lcp_ms") is not None and v["lcp_ms"] > LCP_MS:
