@@ -79,8 +79,10 @@ Without it those tests skip.
    Web App for Containers at it with `WEBSITES_PORT=8080`, set `SEO_DATABASE_URL`, `AZURE_KEY_VAULT_URL`,
    `SEO_LLM_PROVIDER` with `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, `PAGESPEED_API_KEY`, `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`, `VERCEL_WEBHOOK_SECRET`.
    Point the Vercel deploy webhook (deployment.succeeded) at `https://<worker>/webhooks/vercel`.
-4. Console: deploy `console/` to Vercel with `CONSOLE_DATABASE_URL` (the `seo_console_login` role),
-   `CONSOLE_ACCESS_TOKEN` and `CONSOLE_APPROVER_ID`.
+4. Console: `console/Dockerfile` builds a standalone Next.js server; `.github/workflows/console-image.yml`
+   pushes it to `ghcr.io/<owner>/seo-agents-console`. Run it as a container Web App with
+   `CONSOLE_DATABASE_URL` (the `seo_console_login` role through the session pooler), `CONSOLE_ACCESS_TOKEN`,
+   `CONSOLE_APPROVER_ID` (must equal the project's `approver_id`) and `WEBSITES_PORT=8080`.
 
 ## Workflows
 

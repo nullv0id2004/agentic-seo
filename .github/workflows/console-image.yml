@@ -1,0 +1,35 @@
+name: console-image
+on:
+  push:
+    branches: ["claude/charming-wozniak-osrmal", "main"]
+    paths: ["console/**", ".github/workflows/console-image.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: console
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/seo-agents-console:latest
+            ghcr.io/${{ github.repository_owner }}/seo-agents-console:${{ github.sha }}
+      - name: Tell App Service to pull the new image
+        # Optional. Set the repository secret AZURE_CONSOLE_CD_WEBHOOK_URL to the console Web App's
+        # Deployment Center webhook URL. Without it, restart the Web App by hand.
+        env:
+          HOOK: ${{ secrets.AZURE_CONSOLE_CD_WEBHOOK_URL }}
+        if: ${{ env.HOOK != '' }}
+        run: |
+          curl -sS -f -X POST "$HOOK" -H "Content-Type: application/json" -d '{}'
+          echo "pull triggered"

@@ -7,7 +7,7 @@ ga4_property_id: '546390504'
 credentials_ref: gsc-korum-service-account
 github_repo: nullv0id2004/Worldhire2.0-1-
 cms_publish_url: null
-approver_id: 00000000-0000-4000-8000-000000000001
+approver_id: 93a8539c-c38d-427a-86af-150fbdb5539a
 monthly_cost_cap_usd: 50
 monthly_content_cap: 4
 enabled_agents: [technical, keyword, onpage, content, offpage, trend, report]
