@@ -47,9 +47,16 @@ class _Details(BaseModel):
 
 def detect(inp: AnalystInput) -> list[Detected]:
     out: list[Detected] = []
+    # The read window spans this run and the previous one, so every update arrives twice. One event
+    # per (name, source_url), from the newest observation.
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
     for r in inp.table("raw_search_status"):
         if not r.get("source_url"):
             continue
+        key = (r["update_name"], r["source_url"])
+        if key not in latest or str(r.get("collected_at")) > str(latest[key].get("collected_at")):
+            latest[key] = r
+    for r in latest.values():
         when = (r.get("started_at") or r.get("collected_at"))
         out.append(Detected("algorithm_update", r["update_name"], r["source_url"], _d(when),
                             f"status={r.get('status')} started={r.get('started_at')} ended={r.get('ended_at')}", r["id"]))

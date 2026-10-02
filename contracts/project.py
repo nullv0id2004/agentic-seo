@@ -98,6 +98,7 @@ class Project(BaseModel):
     allowed_schema_types: list[str] = Field(default_factory=list)
     monthly_content_cap: int = 4
     critical_paths: list[str] = Field(default_factory=list)
+    keyword_seeds: list[str] = Field(default_factory=list)
     github_repo: str | None = None
     cms_publish_url: str | None = None
     active: bool = True

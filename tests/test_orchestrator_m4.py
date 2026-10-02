@@ -1,6 +1,7 @@
 """M4 acceptance: a deploy webhook produces issues with resolving evidence refs, a duplicate webhook
 produces no second run, and a forced budget breach halts before dispatch rather than after."""
 import uuid
+from datetime import date
 
 import pytest
 
@@ -228,3 +229,55 @@ def test_issue_gone_from_a_crawled_page_is_resolved(worker_url, seeded):
         rows = {r["issue_type"]: r["status"] for r in s.fetchall("select issue_type, status from issues where project_id = %(project_id)s and url = 'https://korum.worldhire.com/x'")}
     assert n == 1
     assert rows == {"missing_h1": "resolved", "missing_title": "open", "lcp_slow": "open"}
+
+
+def test_trend_events_are_one_row_per_update_across_runs(worker_url, seeded):
+    from orchestrator.gate_runner import write_trend_events
+
+    ev = {"kind": "algorithm_update", "name": "September 2026 spam update", "source_url": "https://status.search.google.com/incidents/X",
+          "observed_on": "2026-09-24", "detail": "status=None", "evidence_ref": None}
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        run_a = s.insert("runs", {"workflow": "weekly_monitor", "trigger": "test", "status": "done", "idempotency_key": uuid.uuid4().hex})
+        run_b = s.insert("runs", {"workflow": "weekly_monitor", "trigger": "test", "status": "done", "idempotency_key": uuid.uuid4().hex})
+        first = write_trend_events(s, run_a, {"events": [ev]})
+        second = write_trend_events(s, run_b, {"events": [{**ev, "detail": "status=resolved"}]})
+        row = s.fetchone("select run_id, last_run_id, seen_count, detail from trend_events where project_id = %(project_id)s and id = %(id)s", {"id": first[0]})
+    assert first == second
+    assert row["run_id"] == run_a and row["last_run_id"] == run_b and row["seen_count"] == 2 and row["detail"] == "status=resolved"
+
+
+def test_keyword_universe_is_seeds_plus_what_search_console_shows(worker_url, seeded):
+    """Quarterly run 3528114f on 2026-10-02 priced nothing: the seeds never reached the database."""
+    from orchestrator.graphs.quarterly_keyword import keyword_universe
+
+    project = _project(worker_url, seeded)
+    assert project.keyword_seeds, "seeded from config/projects/korum.yaml"
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        run_id = s.insert("runs", {"workflow": "daily_collect", "trigger": "test", "status": "done", "idempotency_key": uuid.uuid4().hex})
+    with project_scope(seeded["korum"], caller="collector:gsc_performance", url=worker_url) as s:
+        for q, imp in (("Worldhire", 5), ("korum jobs", 9), ("job search platform", 1)):
+            s.insert("raw_gsc_performance", {"run_id": run_id, "date": date.today(), "query": q, "page": "https://korum.worldhire.com/", "clicks": 0, "impressions": imp})
+        s.insert("raw_gsc_performance", {"run_id": run_id, "date": date.today(), "query": None, "page": "https://korum.worldhire.com/", "clicks": 0, "impressions": 15})
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        universe = keyword_universe(s, project, ["  Recruiter Software "])
+    assert universe[0] == "recruiter software", "the caller's list comes first, normalised"
+    assert set(project.keyword_seeds) <= set(universe)
+    assert "korum jobs" in universe and "worldhire" in universe
+    assert len(universe) == len(set(universe)) and None not in universe
+
+
+def test_halted_project_keeps_one_pending_page_owner_approval(worker_url, seeded):
+    """rejuveluxe accumulated six identical pending acknowledgements, one per daily probe."""
+    rt = _rt(worker_url, FakeSite(leaked_inbox=True))
+    project = _project(worker_url, seeded)
+    run_workflow(rt, project, "post_deploy_audit", "test", f"deploy:{uuid.uuid4().hex[:8]}")
+    run_workflow(rt, project, "daily_probe", "cron", f"probe:{uuid.uuid4().hex[:8]}")
+    run_workflow(rt, project, "daily_probe", "cron", f"probe:{uuid.uuid4().hex[:8]}")
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        n = s.fetchone("select count(*) as n from approvals where project_id = %(project_id)s and action_type = 'page_owner' and status = 'pending'")["n"]
+        notified = s.fetchone("select count(*) as n from audit_log where project_id = %(project_id)s and event = 'notified' and detail->>'subject' like '%%CRITICAL%%'")["n"]
+        # leave the project as the other tests expect it
+        s.execute("update projects set halted_reason = null, halted_at = null where id = %(project_id)s")
+        s.execute("update approvals set status = 'rejected', decided_at = now() where project_id = %(project_id)s and action_type = 'page_owner' and status = 'pending'")
+    assert n == 1, "one acknowledgement per halt"
+    assert notified >= 3, "the owner is still paged on every probe"

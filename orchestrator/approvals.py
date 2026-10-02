@@ -48,6 +48,12 @@ def already_queued(scope: ProjectScope, action_type: str, issue_fingerprint: str
     return row is not None
 
 
+def pending_exists(scope: ProjectScope, action_type: str) -> bool:
+    """True when a pending approval of this type already waits for the project."""
+    return scope.fetchone("select 1 as x from approvals where project_id = %(project_id)s and action_type = %(action)s and status = 'pending' limit 1",
+                          {"action": action_type}) is not None
+
+
 def decide(scope: ProjectScope, approval_id: UUID, approver_id: UUID, approve: bool) -> dict[str, Any]:
     row = scope.fetchone("select * from approvals where project_id = %(project_id)s and id = %(id)s", {"id": approval_id})
     if not row or row["status"] != "pending":

@@ -208,3 +208,20 @@ def test_onpage_checks_skip_non_html_and_header_noindex_pages(worker_url, seeded
     assert ids[1] not in by_ref, "header-noindex page gets no on-page issues"
     assert sorted(by_ref[ids[2]]) == ["duplicate_title"]
     assert sorted(by_ref[ids[3]]) == ["duplicate_title", "thin_content"]
+
+
+def test_trend_detect_emits_one_event_per_update(worker_url, seeded):
+    """Weekly run d6430868: the read window covers this run and the previous one, so each Google update
+    arrived twice and 16 events were emitted for 8 updates."""
+    from analysts.trend import detect
+
+    project = _project(worker_url, seeded, "korum")
+    a, b = uuid.uuid4(), uuid.uuid4()
+    rows = {"raw_serp": [], "mentions": [], "raw_search_status": [
+        {"id": a, "update_name": "September 2026 spam update", "source_url": "https://status.search.google.com/incidents/X", "status": None,
+         "started_at": "2026-09-24T16:15:00+00:00", "ended_at": None, "collected_at": "2026-09-28T00:30:00+00:00"},
+        {"id": b, "update_name": "September 2026 spam update", "source_url": "https://status.search.google.com/incidents/X", "status": "resolved",
+         "started_at": "2026-09-24T16:15:00+00:00", "ended_at": "2026-09-30T10:00:00+00:00", "collected_at": "2026-10-02T10:42:00+00:00"},
+    ]}
+    found = detect(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
+    assert len(found) == 1 and found[0].evidence_ref == b, "one event, resting on the newest observation"

@@ -29,10 +29,14 @@ def handle_violations(rt, project: Project, run_id: UUID, violations: list[dict[
     reason = f"{len(violations)} protected route(s) reachable by crawlers ({source}, run {run_id})"
     with rt.scope(project.id) as s:
         notify.page_owner(s, run_id, violations)
-        aid = approvals.queue_approval(
-            s, run_id, "page_owner", {"violations": violations, "source": source},
-            f"{len(violations)} protected route(s) are reachable by crawlers. Every workflow for this project is halted until a probe comes back clean.",
-            source, {"kind": "acknowledge"}, severity="critical")
+        # A halted project is probed every day; the owner is paged each time, but one pending
+        # acknowledgement per halt is enough (rejuveluxe accumulated six in a week).
+        aid = None
+        if not approvals.pending_exists(s, "page_owner"):
+            aid = approvals.queue_approval(
+                s, run_id, "page_owner", {"violations": violations, "source": source},
+                f"{len(violations)} protected route(s) are reachable by crawlers. Every workflow for this project is halted until a probe comes back clean.",
+                source, {"kind": "acknowledge"}, severity="critical")
         s.execute("update projects set halted_reason = %(reason)s, halted_at = now() where id = %(project_id)s", {"reason": reason})
         s.audit("orchestrator", "project_halted", {"reason": reason}, run_id)
     return aid

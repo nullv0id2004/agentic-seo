@@ -5,6 +5,8 @@ from uuid import UUID
 
 from langgraph.graph import END, StateGraph
 
+from contracts.project import Project
+from db.connection import ProjectScope
 from orchestrator import approvals
 from orchestrator.gate_runner import analyse_and_gate
 from orchestrator.graphs.state import RunState
@@ -13,11 +15,32 @@ from orchestrator.runtime import Runtime
 WORKFLOW = "quarterly_keyword"
 
 
+GSC_QUERY_LIMIT = 200
+
+
+def keyword_universe(scope: ProjectScope, project: Project, requested: list[str]) -> list[str]:
+    """What the quarterly run prices: the caller's list, the project's configured seeds, and the queries
+    Search Console has actually shown the site for in the last 90 days (most impressions first). The
+    collector adds the keywords table on its own. Deterministic; no model involved."""
+    rows = scope.fetchall(
+        """select query from raw_gsc_performance
+            where project_id = %(project_id)s and query is not null and date >= current_date - 90
+            group by query order by sum(impressions) desc nulls last, query limit %(limit)s""", {"limit": GSC_QUERY_LIMIT})
+    seen: dict[str, None] = {}
+    for k in [*requested, *project.keyword_seeds, *(r["query"] for r in rows)]:
+        k = (k or "").strip().lower()
+        if k:
+            seen.setdefault(k, None)
+    return list(seen)
+
+
 def build(rt: Runtime) -> StateGraph:
     def collect(state: RunState) -> RunState:
         project = rt.load_project(UUID(state["project_id"]))
         run_id = UUID(state["run_id"])
-        res = rt.run_collector(project, run_id, "keyword_metrics", {"keywords": state.get("params", {}).get("keywords", [])})
+        with rt.scope(project.id) as s:
+            universe = keyword_universe(s, project, state.get("params", {}).get("keywords", []))
+        res = rt.run_collector(project, run_id, "keyword_metrics", {"keywords": universe})
         return {"collectors": {**state.get("collectors", {}), "keyword_metrics": {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}}}
 
     def analyse(state: RunState) -> RunState:

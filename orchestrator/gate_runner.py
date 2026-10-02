@@ -72,10 +72,21 @@ def resolve_unseen_issues(scope: ProjectScope, run_id: UUID, artifacts: list[dic
 
 
 def write_trend_events(scope: ProjectScope, run_id: UUID, artifact: dict[str, Any]) -> list[UUID]:
-    return [scope.insert("trend_events", {
-        "run_id": run_id, "kind": e["kind"], "name": e["name"], "source_url": e["source_url"], "observed_on": e["observed_on"],
-        "detail": e.get("detail"), "evidence_ref": e.get("evidence_ref"),
-    }) for e in artifact.get("events", [])]
+    """One row per (project, kind, source_url) across runs; a recurring event keeps its id and first
+    run_id and takes the latest detail. Returns ids in artifact order."""
+    ids: list[UUID] = []
+    for e in artifact.get("events", []):
+        row = scope.fetchone(
+            """insert into trend_events (project_id, run_id, last_run_id, kind, name, source_url, observed_on, detail, evidence_ref)
+               values (%(project_id)s, %(run_id)s, %(run_id)s, %(kind)s, %(name)s, %(source_url)s, %(observed_on)s, %(detail)s, %(evidence_ref)s)
+               on conflict (project_id, kind, source_url) do update set
+                 last_run_id = excluded.last_run_id, last_seen_at = now(), seen_count = trend_events.seen_count + 1,
+                 name = excluded.name, observed_on = excluded.observed_on, detail = excluded.detail, evidence_ref = excluded.evidence_ref
+               returning id""",
+            {"run_id": run_id, "kind": e["kind"], "name": e["name"], "source_url": e["source_url"], "observed_on": e["observed_on"],
+             "detail": e.get("detail"), "evidence_ref": e.get("evidence_ref")})
+        ids.append(row["id"])
+    return ids
 
 
 def write_report(scope: ProjectScope, run_id: UUID, artifact: dict[str, Any]) -> UUID:
