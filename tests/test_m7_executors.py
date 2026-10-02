@@ -192,3 +192,26 @@ def test_execution_failure_is_recorded_and_row_stays_approved(worker_url, seeded
     assert out and not out[0]["ok"]
     row = _status(worker_url, korum, aid)
     assert row["status"] == "approved" and row["execution_result"]["ok"] is False
+
+
+def test_paused_run_completes_once_its_approvals_are_settled(worker_url, seeded, env):
+    """Production 2026-10-02: quarterly run 90339a2e stayed paused_for_approval after its keyword
+    mapping was approved and executed."""
+    rt = Runtime(db_url=worker_url, model="fake")
+    korum = _project(worker_url, seeded, "korum")
+    with project_scope(korum.id, url=worker_url) as s:
+        run_id = s.insert("runs", {"workflow": "quarterly_keyword", "trigger": "test", "status": "paused_for_approval", "idempotency_key": uuid.uuid4().hex})
+        s.insert("keywords", {"keyword": "settle test", "intent": "navigational"})
+    aid = _approve(worker_url, korum, "keyword_mapping", {"mappings": [{"keyword": "settle test", "mapped_url": "https://korum.worldhire.com/"}]},
+                   {"kind": "restore_previous_mapping", "previous": [{"keyword": "settle test", "mapped_url": None}]}, run_id=run_id)
+    out = execute_approved(rt, korum.id)
+    assert any(o["approval_id"] == str(aid) and o["ok"] for o in out)
+    with project_scope(korum.id, url=worker_url) as s:
+        run = s.fetchone("select status, ended_at from runs where project_id = %(project_id)s and id = %(id)s", {"id": run_id})
+        rejected_run = s.insert("runs", {"workflow": "quarterly_keyword", "trigger": "test", "status": "paused_for_approval", "idempotency_key": uuid.uuid4().hex})
+        rid = approvals.queue_approval(s, rejected_run, "keyword_mapping", {"mappings": []}, "t", "test", {"kind": "restore_previous_mapping", "previous": []})
+        approvals.decide(s, rid, korum.approver_id, False)
+    assert run["status"] == "done" and run["ended_at"] is not None
+    execute_approved(rt, korum.id)
+    with project_scope(korum.id, url=worker_url) as s:
+        assert s.fetchone("select status from runs where project_id = %(project_id)s and id = %(id)s", {"id": rejected_run})["status"] == "done", "a rejection settles the run too"

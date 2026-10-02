@@ -80,7 +80,24 @@ def execute_approved(rt, project_id: UUID, executors: dict[str, Executor] | None
             out.append({"approval_id": str(r["id"]), "action_type": r["action_type"], "ok": True, "detail": res["detail"]})
         except Exception as e:
             out.append({"approval_id": str(r["id"]), "action_type": r["action_type"], "ok": False, "error": f"{type(e).__name__}: {e}"})
+    with rt.scope(project_id) as s:
+        close_settled_runs(s)
     return out
+
+
+def close_settled_runs(scope: ProjectScope) -> int:
+    """A run paused for approval is finished once none of its approvals is still pending or approved
+    but unexecuted. Before this the first keyword run sat at paused_for_approval after its mapping
+    had been executed, which read as "nothing happened"."""
+    cur = scope.execute(
+        """update runs set status = 'done', ended_at = now()
+            where project_id = %(project_id)s and status = 'paused_for_approval'
+              and not exists (select 1 from approvals a where a.project_id = runs.project_id and a.run_id = runs.id
+                                and a.status in ('pending', 'approved'))""")
+    n = cur.rowcount
+    if n:
+        scope.audit("executor", "runs_completed_after_approvals", {"count": n})
+    return n
 
 
 def _scope_for(rt, project_id: UUID, action_type: str) -> ProjectScope:  # pragma: no cover - helper for callers that need a raw scope
