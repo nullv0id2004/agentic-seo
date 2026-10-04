@@ -17,6 +17,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
     reports: await q("select id, period, created_at, caveats from reports where project_id = $1 order by created_at desc limit 12"),
     trends: await q("select kind, name, source_url, observed_on, detail from trend_events where project_id = $1 order by observed_on desc limit 20"),
     pending: await q("select count(*)::int as n from approvals where project_id = $1 and status = 'pending'"),
+    aiMetrics: await q("select target_kind, platform, mentions, ai_search_volume, collected_at from raw_llm_mention_metrics where project_id = $1 and run_id = (select run_id from raw_llm_mention_metrics where project_id = $1 order by collected_at desc limit 1) order by target_kind, platform"),
+    aiPrompts: await q("select platform, model_name, prompt, cites_project, citations, collected_at from raw_llm_responses where project_id = $1 and run_id = (select run_id from raw_llm_responses where project_id = $1 order by collected_at desc limit 1) order by cites_project desc, prompt limit 30"),
     suggestions: await q("select url, field, current, suggested, rationale from onpage_suggestions where project_id = $1 and status = 'proposed' order by created_at desc limit 40"),
     ops: await q(`select
         (select count(*)::int from gate_results where project_id = $1 and created_at >= now() - interval '30 days' and detail->>'stage' = '1') as gate1_runs,
@@ -115,6 +117,32 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
             <tr key={i}><td>{str(x.url)}</td><td>{str(x.field)}</td><td className="muted">{str(x.current)}</td><td>{str(x.suggested)}</td><td>{str(x.rationale)}</td></tr>
           ))}
           {data.suggestions.length === 0 && <tr><td colSpan={5} className="muted">none</td></tr>}
+        </tbody>
+      </table>
+
+      <h2>AI visibility</h2>
+      <p className="muted">From the latest weekly run. Mentions and AI search volume come from DataForSEO's LLM Mentions index; the prompts are asked every week with web search on.</p>
+      <table>
+        <thead><tr><th>Target</th><th>Platform</th><th>Mentions</th><th>AI search volume</th></tr></thead>
+        <tbody>
+          {data.aiMetrics.map((m, i) => (
+            <tr key={i}><td>{str(m.target_kind)}</td><td>{str(m.platform)}</td><td>{str(m.mentions ?? 0)}</td><td>{str(m.ai_search_volume ?? 0)}</td></tr>
+          ))}
+          {data.aiMetrics.length === 0 && <tr><td colSpan={4} className="muted">no LLM mention data yet</td></tr>}
+        </tbody>
+      </table>
+      <table>
+        <thead><tr><th>Prompt</th><th>Platform</th><th>Cites the site</th><th>Sources cited</th></tr></thead>
+        <tbody>
+          {data.aiPrompts.map((p, i) => (
+            <tr key={i}>
+              <td>{str(p.prompt)}</td>
+              <td>{str(p.platform)} <span className="muted">{str(p.model_name)}</span></td>
+              <td><span className={`pill ${p.cites_project ? "ok" : ""}`}>{p.cites_project ? "yes" : "no"}</span></td>
+              <td className="muted">{Array.isArray(p.citations) ? (p.citations as { url?: string }[]).map((c) => c.url).filter(Boolean).slice(0, 4).join(", ") : ""}</td>
+            </tr>
+          ))}
+          {data.aiPrompts.length === 0 && <tr><td colSpan={4} className="muted">no prompts asked yet</td></tr>}
         </tbody>
       </table>
 

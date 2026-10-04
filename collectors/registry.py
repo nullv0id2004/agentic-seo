@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from collectors import (
+    ai_keyword_metrics,
     backlinks,
     crawl,
     doc_fetch,
@@ -12,6 +13,8 @@ from collectors import (
     gsc,
     header_probe,
     keyword_metrics,
+    llm_mentions,
+    llm_responses,
     psi,
     search_status,
     serp,
@@ -31,6 +34,9 @@ COLLECTORS: dict[str, CollectFn] = {
     "search_status": search_status.collect,
     "keyword_metrics": keyword_metrics.collect,
     "backlinks": backlinks.collect,
+    "ai_keyword_metrics": ai_keyword_metrics.collect,
+    "llm_mentions": llm_mentions.collect,
+    "llm_responses": llm_responses.collect,
 }
 
 

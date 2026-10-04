@@ -50,17 +50,20 @@ for _c, _writes, _reads in [
     ("backlinks", ("mentions",), ()),
     ("doc_fetch", ("raw_fetched_documents",), ()),
     ("search_status", ("raw_search_status",), ()),
+    ("ai_keyword_metrics", ("raw_ai_keyword_metrics",), ("keywords",)),
+    ("llm_mentions", ("raw_llm_mention_metrics", "raw_llm_mentions"), ()),
+    ("llm_responses", ("raw_llm_responses",), ("keywords",)),
 ]:
     register(AgentSpec(_c, "collector", reads=_reads, writes=_writes + ("collection_gaps",), network=True))
 
 register(AgentSpec("technical", "analyst", reads=("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules"), llm=True))
 register(AgentSpec("ecommerce", "analyst", reads=("raw_crawl_pages", "critical_rules"), llm=True))
-register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_gsc_performance", "keywords", "critical_rules", "raw_crawl_pages"), llm=True))
+register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_ai_keyword_metrics", "raw_gsc_performance", "keywords", "critical_rules", "raw_crawl_pages"), llm=True))
 register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "brand_rules", "critical_rules"), llm=True))
 register(AgentSpec("content", "analyst", reads=("keywords", "raw_fetched_documents", "content_briefs", "raw_crawl_pages", "critical_rules"), llm=True))
 register(AgentSpec("offpage", "analyst", reads=("mentions", "raw_serp"), llm=True))
-register(AgentSpec("trend", "analyst", reads=("raw_serp", "mentions", "raw_search_status"), llm=True))
-register(AgentSpec("report", "analyst", reads=("raw_gsc_performance", "raw_ga4_daily", "issues", "raw_serp", "mentions", "collection_gaps", "runs", "trend_events"), llm=True))
+register(AgentSpec("trend", "analyst", reads=("raw_serp", "mentions", "raw_search_status", "raw_llm_responses"), llm=True))
+register(AgentSpec("report", "analyst", reads=("raw_gsc_performance", "raw_ga4_daily", "issues", "raw_serp", "mentions", "collection_gaps", "runs", "trend_events", "raw_llm_mention_metrics", "raw_llm_responses"), llm=True))
 register(AgentSpec("gate_stage1", "gate", reads=("brand_rules", "critical_rules"), writes=("gate_results",)))
 register(AgentSpec("gate_stage2", "gate", reads=("raw_fetched_documents",), writes=("gate_results",), llm=True))
 register(AgentSpec("github", "executor", reads=("approvals",), writes=("approvals", "audit_log"), network=True, credentials=("github-fix-branch-token",)))

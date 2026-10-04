@@ -225,3 +225,30 @@ def test_trend_detect_emits_one_event_per_update(worker_url, seeded):
     ]}
     found = detect(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
     assert len(found) == 1 and found[0].evidence_ref == b, "one event, resting on the newest observation"
+
+
+def test_trend_detects_ai_citation_changes_and_report_counts_ai_visibility(worker_url, seeded):
+    from analysts.report import compute_metrics
+    from analysts.trend import detect
+
+    project = _project(worker_url, seeded, "korum")
+    run_a, run_b = uuid.uuid4(), uuid.uuid4()
+    a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    responses = [
+        {"id": a, "run_id": run_a, "platform": "chat_gpt", "model_name": "gpt-4.1", "prompt": "What is KORUM and what does it offer?", "cites_project": False, "citations": [], "collected_at": "2026-09-28T01:00:00+00:00"},
+        {"id": b, "run_id": run_b, "platform": "chat_gpt", "model_name": "gpt-4.1", "prompt": "What is KORUM and what does it offer?", "cites_project": True,
+         "citations": [{"url": "https://korum.worldhire.com/", "title": "KORUM"}], "collected_at": "2026-10-05T01:00:00+00:00"},
+        {"id": c, "run_id": run_b, "platform": "chat_gpt", "model_name": "gpt-4.1", "prompt": "Which websites should I use for job search platform?", "cites_project": False, "citations": [], "collected_at": "2026-10-05T01:00:00+00:00"},
+    ]
+    found = detect(AnalystInput(project=project, run_id=run_b, rows={"raw_search_status": [], "raw_serp": [], "mentions": [], "raw_llm_responses": responses}))
+    assert [f.kind for f in found] == ["ai_citation_change"] and found[0].evidence_ref == b and "started citing" in found[0].name
+    assert found[0].source_url == "https://korum.worldhire.com/"
+    m1, m2 = uuid.uuid4(), uuid.uuid4()
+    rows = {"raw_gsc_performance": [], "collection_gaps": [], "raw_llm_responses": responses,
+            "raw_llm_mention_metrics": [{"id": m1, "run_id": run_b, "target_kind": "domain", "platform": "chat_gpt", "mentions": 3, "ai_search_volume": 1200},
+                                        {"id": m2, "run_id": run_b, "target_kind": "domain", "platform": "google", "mentions": 1, "ai_search_volume": 40}]}
+    metrics, _, _, _ = compute_metrics(AnalystInput(project=project, run_id=run_b, rows=rows, params={"since": "2026-09-29", "until": "2026-10-05"}))
+    by = {m.name: m for m in metrics}
+    assert by["llm_mentions_domain"].value == 4 and by["llm_ai_search_volume_domain"].value == 1240 and by["llm_mentions_domain"].evidence_ref == m1
+    assert by["llm_prompts_asked"].value == 2 and by["llm_prompts_citing_site"].value == 1, "only the latest run's prompts count"
+    assert "llm_mentions_brand" not in by

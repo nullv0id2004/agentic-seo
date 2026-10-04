@@ -99,6 +99,25 @@ def compute_metrics(inp: AnalystInput) -> tuple[list[MetricOut], list[Caveat], s
         metrics.append(MetricOut(evidence_ref=serp[0]["id"], name="serp_top10_queries", value=float(top10), period=period, derived_from_rows=len(serp)))
         metrics.append(MetricOut(evidence_ref=serp[0]["id"], name="ai_overview_citations", value=float(cited), period=period, derived_from_rows=len(serp)))
 
+    llm_metrics = inp.table("raw_llm_mention_metrics")
+    if llm_metrics and "llm_mentions" not in gapped:
+        latest_run = max(str(r["run_id"]) for r in llm_metrics)
+        rows = [r for r in llm_metrics if str(r["run_id"]) == latest_run]
+        for kind in ("domain", "brand"):
+            sub = [r for r in rows if r.get("target_kind") == kind]
+            if sub:
+                metrics.append(MetricOut(evidence_ref=sub[0]["id"], name=f"llm_mentions_{kind}", value=float(sum(r.get("mentions") or 0 for r in sub)),
+                                         period=period, derived_from_rows=len(sub)))
+                metrics.append(MetricOut(evidence_ref=sub[0]["id"], name=f"llm_ai_search_volume_{kind}", value=float(sum(r.get("ai_search_volume") or 0 for r in sub)),
+                                         period=period, derived_from_rows=len(sub)))
+    responses = inp.table("raw_llm_responses")
+    if responses and "llm_responses" not in gapped:
+        latest_run = max(str(r["run_id"]) for r in responses)
+        rows = [r for r in responses if str(r["run_id"]) == latest_run]
+        metrics.append(MetricOut(evidence_ref=rows[0]["id"], name="llm_prompts_asked", value=float(len(rows)), period=period, derived_from_rows=len(rows)))
+        metrics.append(MetricOut(evidence_ref=rows[0]["id"], name="llm_prompts_citing_site", value=float(sum(1 for r in rows if r.get("cites_project"))),
+                                 period=period, derived_from_rows=len(rows)))
+
     mentions = [m for m in inp.table("mentions") if m.get("first_seen") and start <= m["first_seen"] <= end]
     if mentions:
         metrics.append(MetricOut(evidence_ref=None, name="new_mentions", value=float(len(mentions)), period=period, derived_from_rows=len(mentions)))

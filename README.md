@@ -102,3 +102,20 @@ on the next scheduler tick.
 
 Add `config/projects/<slug>.yaml` and run `scripts/seed_projects.py`. There is no property enum anywhere.
 An external client gets its own Supabase project and worker deployment, not a row here.
+
+## AI Optimization data (DataForSEO)
+
+Three collectors, all fail closed without `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`:
+
+| Collector | Workflow | Writes | Source endpoint |
+|---|---|---|---|
+| `ai_keyword_metrics` | quarterly_keyword | `raw_ai_keyword_metrics` | `ai_optimization/ai_keyword_data/keywords_search_volume/live` |
+| `llm_mentions` | weekly_monitor | `raw_llm_mention_metrics`, `raw_llm_mentions` | `llm_mentions/target_metrics_lite/live` and `llm_mentions/search_mentions/live` |
+| `llm_responses` | weekly_monitor | `raw_llm_responses` | `<platform>/llm_responses/live`, ChatGPT by default with web search on |
+
+Prompts are built deterministically from the tracked keywords and the brand (`collectors/llm_responses.py`,
+`build_prompts`), capped at 12 per platform per run. `cites_project` is computed in the collector from the
+source domains. The report analyst emits `llm_mentions_*`, `llm_ai_search_volume_*`, `llm_prompts_asked`
+and `llm_prompts_citing_site`; the trend analyst emits `ai_citation_change` when a prompt starts or stops
+citing the site. Location defaults to 2840 (United States) because ChatGPT mention data exists only there;
+pass `ai_location_code` / `country_iso` as collector params to change it.

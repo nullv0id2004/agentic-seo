@@ -40,8 +40,11 @@ def build(rt: Runtime) -> StateGraph:
         run_id = UUID(state["run_id"])
         with rt.scope(project.id) as s:
             universe = keyword_universe(s, project, state.get("params", {}).get("keywords", []))
-        res = rt.run_collector(project, run_id, "keyword_metrics", {"keywords": universe})
-        return {"collectors": {**state.get("collectors", {}), "keyword_metrics": {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}}}
+        out = dict(state.get("collectors", {}))
+        for name in ("keyword_metrics", "ai_keyword_metrics"):
+            res = rt.run_collector(project, run_id, name, {"keywords": universe})
+            out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
+        return {"collectors": out}
 
     def analyse(state: RunState) -> RunState:
         project = rt.load_project(UUID(state["project_id"]))

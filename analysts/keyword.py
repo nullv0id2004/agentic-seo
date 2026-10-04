@@ -69,11 +69,12 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> KeywordReport:
     for r in inp.table("raw_gsc_performance"):
         if r.get("query") and r.get("page"):
             gsc_pages.setdefault(r["query"].lower(), []).append((r["page"], r.get("impressions") or 0))
+    ai_volume = {r["keyword"].lower(): r.get("ai_search_volume") for r in inp.table("raw_ai_keyword_metrics")}
     listing = []
     for kw, m in latest.items():
         top = sorted(gsc_pages.get(kw, []), key=lambda x: -x[1])[:3]
         listing.append({"keyword": m["keyword"], "volume": m.get("volume"), "volume_range": [m.get("volume_low"), m.get("volume_high")] if m.get("volume_is_range") else None,
-                        "difficulty": m.get("difficulty"), "gsc_pages": [p for p, _ in top]})
+                        "difficulty": m.get("difficulty"), "ai_search_volume": ai_volume.get(kw), "gsc_pages": [p for p, _ in top]})
     user = json.dumps({"project": inp.project.display_name, "crawled_urls": urls[:200], "keywords": listing}, indent=1)
     res = ctx.complete(agent=NAME, system=SYSTEM, user=user, schema=_Assignments, max_tokens=8192)
     by = {a.keyword.lower(): a for a in res.assignments}

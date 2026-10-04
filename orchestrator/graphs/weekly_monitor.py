@@ -17,7 +17,7 @@ def build(rt: Runtime) -> StateGraph:
         project = rt.load_project(UUID(state["project_id"]))
         run_id = UUID(state["run_id"])
         out = dict(state.get("collectors", {}))
-        for name in ("serp", "search_status", "gsc_inspection"):
+        for name in ("serp", "search_status", "gsc_inspection", "llm_mentions", "llm_responses"):
             params = {}
             if name == "gsc_inspection":
                 # weekly proof that protected routes are not indexed; the collector enforces the 2000/day cap

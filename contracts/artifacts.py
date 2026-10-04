@@ -111,7 +111,7 @@ class OffPageReport(Strict):
 # ---------- trend ----------
 
 class TrendEvent(Assertion):
-    kind: Literal["algorithm_update", "serp_feature_change", "ai_overview_change", "ranking_shift"]
+    kind: Literal["algorithm_update", "serp_feature_change", "ai_overview_change", "ranking_shift", "ai_citation_change"]
     name: str
     source_url: str
     observed_on: str

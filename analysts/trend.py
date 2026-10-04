@@ -79,6 +79,20 @@ def detect(inp: AnalystInput) -> list[Detected]:
         if pr != cr and (pr is not None or cr is not None):
             out.append(Detected("ranking_shift", f"Rank for '{q}' moved {pr} -> {cr}", src, _d(cur["collected_at"]),
                                 f"previous_rank={pr} current_rank={cr}", cur["id"]))
+    # LLM answers: the same prompt asked this run and last; an event when the site starts or stops being cited
+    by_prompt: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for r in inp.table("raw_llm_responses"):
+        by_prompt.setdefault((r["platform"], r["prompt"]), []).append(r)
+    for (platform, prompt), rows in by_prompt.items():
+        rows.sort(key=lambda r: str(r["collected_at"]))
+        if len(rows) < 2:
+            continue
+        prev, cur = rows[-2], rows[-1]
+        if bool(prev.get("cites_project")) != bool(cur.get("cites_project")):
+            first = next((c.get("url") for c in (cur.get("citations") or []) if c.get("url")), None)
+            src = first or f"https://chatgpt.com/?q={prompt.replace(' ', '+')}"
+            out.append(Detected("ai_citation_change", f"{platform} {'started' if cur.get('cites_project') else 'stopped'} citing the site for '{prompt}'",
+                                src, _d(cur["collected_at"]), f"previous={prev.get('cites_project')} current={cur.get('cites_project')} model={cur.get('model_name')}", cur["id"]))
     return out
 
 
