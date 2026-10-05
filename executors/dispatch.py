@@ -12,6 +12,8 @@ from executors.github import GitHubExecutor
 from executors.internal import AcknowledgeExecutor, KeywordMappingExecutor
 from orchestrator.approvals import APPROVAL_ACTIONS
 
+MAX_ATTEMPTS = 3   # an approved action that fails this many times is marked failed and no longer retried
+
 
 def default_executors() -> dict[str, Executor]:
     table: dict[str, Executor] = {}
@@ -40,11 +42,19 @@ def execute_one(rt, project_id: UUID, approval_id: UUID, executors: dict[str, Ex
         with rt.scope(project_id, _executor_agent(approval["action_type"])) as s:
             result = ex.execute(s, project, approval, params or {})
     except Exception as e:
-        # the executor's transaction rolled back; record the failure in its own transaction and leave the row approved
+        # The executor's transaction rolled back. Record the failure in its own transaction. The row stays
+        # approved for another attempt on a later tick, up to MAX_ATTEMPTS; then it is marked failed so the
+        # scheduler stops retrying a failure that will not fix itself (a pitch with no recipient, say).
+        prior = approval.get("execution_result") or {}
+        attempts = int(prior.get("attempts") or (1 if prior.get("ok") is False else 0)) + 1
+        error = f"{type(e).__name__}: {e}"
+        gave_up = attempts >= MAX_ATTEMPTS
         with rt.scope(project_id) as s:
-            s.audit(f"executor:{approval['action_type']}", "execution_failed", {"approval_id": str(approval_id), "error": f"{type(e).__name__}: {e}"}, approval["run_id"])
-            s.execute("update approvals set execution_result = %(res)s where project_id = %(project_id)s and id = %(id)s",
-                      {"res": {"ok": False, "error": f"{type(e).__name__}: {e}"[:500]}, "id": approval_id})
+            s.audit(f"executor:{approval['action_type']}", "execution_failed",
+                    {"approval_id": str(approval_id), "error": error, "attempt": attempts, "gave_up": gave_up}, approval["run_id"])
+            s.execute("update approvals set execution_result = %(res)s, status = case when %(gave_up)s then 'failed' else status end"
+                      " where project_id = %(project_id)s and id = %(id)s",
+                      {"res": {"ok": False, "error": error[:500], "attempts": attempts}, "gave_up": gave_up, "id": approval_id})
         raise
     with rt.scope(project_id) as s:
         s.execute(
@@ -70,7 +80,8 @@ def reverse_one(rt, project_id: UUID, approval_id: UUID, executors: dict[str, Ex
 
 
 def execute_approved(rt, project_id: UUID, executors: dict[str, Executor] | None = None) -> list[dict[str, Any]]:
-    """Execute every approved row for a project, oldest first. Failures are recorded and skipped, not retried here."""
+    """Execute every approved row for a project, oldest first. A failure is recorded; the scheduler calls this every
+    minute, so a failing row is retried on later ticks until execute_one marks it failed after MAX_ATTEMPTS."""
     with rt.scope(project_id) as s:
         rows = s.fetchall("select id, action_type from approvals where project_id = %(project_id)s and status = 'approved' order by created_at")
     out = []

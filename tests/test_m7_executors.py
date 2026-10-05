@@ -191,7 +191,24 @@ def test_execution_failure_is_recorded_and_row_stays_approved(worker_url, seeded
     out = execute_approved(rt, korum.id, {"open_fix_pr": GitHubExecutor(transport=boom)})
     assert out and not out[0]["ok"]
     row = _status(worker_url, korum, aid)
-    assert row["status"] == "approved" and row["execution_result"]["ok"] is False
+    assert row["status"] == "approved" and row["execution_result"]["ok"] is False and row["execution_result"]["attempts"] == 1
+
+
+def test_a_failing_approval_stops_retrying_after_three_attempts(worker_url, seeded, env):
+    """Production 2026-10-05: two approved pitches with no recipient failed every scheduler minute (28 audit
+    rows in 13 minutes). After MAX_ATTEMPTS the row is marked failed and the dispatcher no longer sees it."""
+    from executors.dispatch import MAX_ATTEMPTS
+
+    rt = Runtime(db_url=worker_url, model="fake")
+    korum = _project(worker_url, seeded, "korum")
+    boom = httpx.MockTransport(lambda req: httpx.Response(500, json={"message": "down"}))
+    ex = {"open_fix_pr": GitHubExecutor(transport=boom)}
+    aid = _approve(worker_url, korum, "open_fix_pr", {"issue_type": "x", "recommended_fix": "y"}, {"kind": "close_pr_and_delete_branch"})
+    for _ in range(MAX_ATTEMPTS):
+        assert any(o["approval_id"] == str(aid) and not o["ok"] for o in execute_approved(rt, korum.id, ex))
+    row = _status(worker_url, korum, aid)
+    assert row["status"] == "failed" and row["execution_result"]["attempts"] == MAX_ATTEMPTS
+    assert all(o["approval_id"] != str(aid) for o in execute_approved(rt, korum.id, ex)), "a failed row is not retried"
 
 
 def test_paused_run_completes_once_its_approvals_are_settled(worker_url, seeded, env):
