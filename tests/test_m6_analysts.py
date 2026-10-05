@@ -232,7 +232,8 @@ def test_trend_detects_ai_citation_changes_and_report_counts_ai_visibility(worke
     from analysts.trend import detect
 
     project = _project(worker_url, seeded, "korum")
-    run_a, run_b = uuid.uuid4(), uuid.uuid4()
+    # The older run gets the larger id: "latest" must come from collected_at, never from id order.
+    run_a, run_b = uuid.UUID("ffffffff-ffff-4fff-bfff-ffffffffffff"), uuid.UUID("00000000-0000-4000-8000-000000000000")
     a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     responses = [
         {"id": a, "run_id": run_a, "platform": "chat_gpt", "model_name": "gpt-4.1", "prompt": "What is KORUM and what does it offer?", "cites_project": False, "citations": [], "collected_at": "2026-09-28T01:00:00+00:00"},

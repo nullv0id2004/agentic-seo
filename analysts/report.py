@@ -11,6 +11,7 @@ import json
 import re
 from collections import Counter
 from datetime import date, timedelta
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -101,7 +102,7 @@ def compute_metrics(inp: AnalystInput) -> tuple[list[MetricOut], list[Caveat], s
 
     llm_metrics = inp.table("raw_llm_mention_metrics")
     if llm_metrics and "llm_mentions" not in gapped:
-        latest_run = max(str(r["run_id"]) for r in llm_metrics)
+        latest_run = _latest_run(llm_metrics)
         rows = [r for r in llm_metrics if str(r["run_id"]) == latest_run]
         for kind in ("domain", "brand"):
             sub = [r for r in rows if r.get("target_kind") == kind]
@@ -112,7 +113,7 @@ def compute_metrics(inp: AnalystInput) -> tuple[list[MetricOut], list[Caveat], s
                                          period=period, derived_from_rows=len(sub)))
     responses = inp.table("raw_llm_responses")
     if responses and "llm_responses" not in gapped:
-        latest_run = max(str(r["run_id"]) for r in responses)
+        latest_run = _latest_run(responses)
         rows = [r for r in responses if str(r["run_id"]) == latest_run]
         metrics.append(MetricOut(evidence_ref=rows[0]["id"], name="llm_prompts_asked", value=float(len(rows)), period=period, derived_from_rows=len(rows)))
         metrics.append(MetricOut(evidence_ref=rows[0]["id"], name="llm_prompts_citing_site", value=float(sum(1 for r in rows if r.get("cites_project"))),
@@ -124,6 +125,15 @@ def compute_metrics(inp: AnalystInput) -> tuple[list[MetricOut], list[Caveat], s
 
     metrics = [m for m in metrics if m.evidence_ref is not None]
     return metrics, caveats, period, end.isoformat()
+
+
+def _latest_run(rows: list[dict[str, Any]]) -> str:
+    """The run whose rows were collected last. Run ids are random UUIDs, so their order means nothing."""
+    newest: dict[str, str] = {}
+    for r in rows:
+        run, at = str(r["run_id"]), str(r.get("collected_at") or "")
+        newest[run] = max(newest.get(run, ""), at)
+    return max(newest, key=lambda run: (newest[run], run))
 
 
 def _allowed_numbers(metrics: list[MetricOut], cutoff: str, period: str) -> set[str]:

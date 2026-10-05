@@ -17,6 +17,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: seo-agents-worker:smoke
+      - name: The worker imports inside the image
+        # Catches a dependency that breaks at import before a crash-looping image reaches App Service.
+        run: docker run --rm --entrypoint python seo-agents-worker:smoke -c "import worker; from orchestrator.runtime import Runtime; Runtime(); print('import ok')"
       - uses: docker/build-push-action@v6
         with:
           context: .
