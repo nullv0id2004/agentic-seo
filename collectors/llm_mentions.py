@@ -12,6 +12,7 @@ is passed.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from collectors import ratelimit
@@ -59,15 +60,31 @@ def _task(ctx: CollectorContext, http, api: str, body: dict[str, Any], scope: st
     return (task.get("result") or [None])[0]
 
 
+CONTEXT_WINDOW = 150   # characters either side of a brand mention in which a generic context term must appear
+
+
 def about_project(text: str, sources: list[dict[str, Any]], domains: set[str], brand: str, context_terms: list[str]) -> bool:
-    """A brand mention counts for this project when the answer cites one of its domains, or names the
-    brand together with one of its context terms. With no context terms the brand is taken as unambiguous."""
+    """A brand mention counts for this project when the answer cites one of its domains, names the brand
+    with its qualifier (the first context term, e.g. WorldHire) anywhere, or names the brand with another
+    context term within CONTEXT_WINDOW characters. Proximity matters: an answer about a denim brand that
+    mentions "Korum Mall" in one paragraph and "job security" in another is not about this project.
+    With no context terms the brand is taken as unambiguous."""
     if cites(sources, domains):
         return True
     low = (text or "").lower()
-    if brand.lower() not in low:
+    hits = [m.start() for m in re.finditer(r"\b" + re.escape(brand.lower()) + r"\b", low)]
+    if not hits:
         return False
-    return not context_terms or any(t.lower() in low for t in context_terms)
+    if not context_terms:
+        return True
+    qualifier, *generic = [t.lower() for t in context_terms]
+    if re.search(r"\b" + re.escape(qualifier), low):
+        return True
+    for i in hits:
+        window = low[max(0, i - CONTEXT_WINDOW): i + len(brand) + CONTEXT_WINDOW]
+        if any(re.search(r"\b" + re.escape(t), window) for t in generic):
+            return True
+    return False
 
 
 def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:

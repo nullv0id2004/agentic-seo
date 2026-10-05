@@ -263,13 +263,17 @@ def test_llm_mentions_searches_each_target_and_keeps_only_this_brand(worker_url,
              "ai_search_volume": 9000, "sources": [{"rank": 1, "domain": "korum.co.uk", "url": "https://korum.co.uk/", "title": "Korum"}]},
             {"platform": "chat_gpt", "model_name": "gpt-4o", "question": "new job sites in india", "answer": "KORUM by WorldHire lists jobs for job seekers.",
              "ai_search_volume": 30, "sources": []},
+            {"platform": "google", "model_name": "google_ai_overview", "question": "the flying machine reviews", "ai_search_volume": 50, "sources": [],
+             "answer": "Stores such as Korum Mall score well. " + "Denim fits and fabric quality vary by line. " * 6 + "Employee ratings: job security ~4.0 / 5."},
+            {"platform": "chat_gpt", "model_name": "gpt-4o", "question": "korum app india", "ai_search_volume": 20, "sources": [],
+             "answer": "KORUM is a hiring app where employers post roles."},
         ]}))
 
     project = _project(worker_url, seeded)
     assert project.brand_context_terms[0] == "WorldHire"
     run_id = uuid.uuid4()
     res = collect("llm_mentions", project, run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
-    assert not res.partial and res.rows_written == 5, "2 domain metrics rows, 1 domain mention, 2 brand mentions"
+    assert not res.partial and res.rows_written == 7, "2 domain metrics rows, 1 domain mention, 4 brand mentions"
     assert [(c[0], c[1]) for c in calls] == [
         ("target_metrics_lite", [{"domain": "korum.worldhire.com", "include_subdomains": True}]),
         ("search_mentions", [{"domain": "korum.worldhire.com", "include_subdomains": True}]),
@@ -285,6 +289,8 @@ def test_llm_mentions_searches_each_target_and_keeps_only_this_brand(worker_url,
     assert by_q["best hiring platforms in india"]["brand_entities"][0]["title"] == "KORUM"
     assert by_q["best carp rods"]["about_project"] is False, "the fishing tackle Korum is not this project"
     assert by_q["new job sites in india"]["about_project"] is True and by_q["new job sites in india"]["cites_project"] is False
+    assert by_q["the flying machine reviews"]["about_project"] is False, "run 7bdd20ae: Korum Mall and job security were paragraphs apart"
+    assert by_q["korum app india"]["about_project"] is True, "a generic context term next to the brand counts"
 
 
 def test_brand_prompts_skip_branded_and_misspelled_keywords():
