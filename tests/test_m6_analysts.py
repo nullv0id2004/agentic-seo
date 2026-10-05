@@ -248,8 +248,16 @@ def test_trend_detects_ai_citation_changes_and_report_counts_ai_visibility(worke
     rows = {"raw_gsc_performance": [], "collection_gaps": [], "raw_llm_responses": responses,
             "raw_llm_mention_metrics": [{"id": m1, "run_id": run_b, "target_kind": "domain", "platform": "chat_gpt", "mentions": 3, "ai_search_volume": 1200},
                                         {"id": m2, "run_id": run_b, "target_kind": "domain", "platform": "google", "mentions": 1, "ai_search_volume": 40}]}
+    k1, k2 = uuid.uuid4(), uuid.uuid4()
+    rows["raw_llm_mentions"] = [
+        {"id": k1, "run_id": run_b, "target_kind": "brand", "about_project": False, "collected_at": "2026-10-05T01:00:00+00:00"},
+        {"id": k2, "run_id": run_b, "target_kind": "brand", "about_project": True, "collected_at": "2026-10-05T01:00:00+00:00"},
+        {"id": uuid.uuid4(), "run_id": run_b, "target_kind": "domain", "about_project": True, "collected_at": "2026-10-05T01:00:00+00:00"},
+    ]
+    rows["raw_llm_mention_metrics"].append({"id": uuid.uuid4(), "run_id": run_b, "target_kind": "brand", "platform": "google", "mentions": 179, "ai_search_volume": 43490})
     metrics, _, _, _ = compute_metrics(AnalystInput(project=project, run_id=run_b, rows=rows, params={"since": "2026-09-29", "until": "2026-10-05"}))
     by = {m.name: m for m in metrics}
     assert by["llm_mentions_domain"].value == 4 and by["llm_ai_search_volume_domain"].value == 1240 and by["llm_mentions_domain"].evidence_ref == m1
     assert by["llm_prompts_asked"].value == 2 and by["llm_prompts_citing_site"].value == 1, "only the latest run's prompts count"
-    assert "llm_mentions_brand" not in by
+    assert "llm_mentions_brand" not in by, "a brand keyword aggregate counts other brands of the same name"
+    assert by["llm_brand_answers_sampled"].value == 2 and by["llm_brand_answers_about_project"].value == 1 and by["llm_brand_answers_about_project"].evidence_ref == k2

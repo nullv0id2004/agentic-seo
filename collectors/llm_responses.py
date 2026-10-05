@@ -19,9 +19,52 @@ PROMPT_TEMPLATES = ("What are the best options for {keyword} in India?", "Which 
 MAX_PROMPTS = 12
 
 
-def build_prompts(keywords: list[str], brand: str, limit: int = MAX_PROMPTS) -> list[str]:
-    prompts = [f"What is {brand} and what does it offer?"] if brand else []
+def _edit_distance(a: str, b: str) -> int:
+    """Optimal string alignment distance: an adjacent swap ("kourm" for "korum") counts as one edit."""
+    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+    for i in range(len(a) + 1):
+        d[i][0] = i
+    for j in range(len(b) + 1):
+        d[0][j] = j
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[-1][-1]
+
+
+def brand_tokens(brand: str, domains: list[str], context_terms: list[str]) -> set[str]:
+    """Words that make a keyword navigational: the brand, the labels of the project's domains and the
+    first context term (the parent brand). Generic labels such as www and com are left out."""
+    toks = {brand.lower()} if brand else set()
+    for d in domains:
+        toks |= {x for x in d.lower().removeprefix("www.").split(".")[:-1] if len(x) > 2}
+    if context_terms:
+        toks.add(context_terms[0].lower())
+    return {t for t in toks if t}
+
+
+def is_branded(keyword: str, tokens: set[str]) -> bool:
+    """True for a keyword that names the brand, including a one-edit misspelling with the same first
+    letter ("kourm" for "korum", not "forum") and a split name ("world hire"). Asking an assistant for
+    "the best options for kourm" measures nothing."""
+    words = keyword.lower().split()
+    candidates = words + [x + y for x, y in zip(words, words[1:], strict=False)]
+    for word in candidates:
+        for t in tokens:
+            if word == t or (len(t) >= 4 and word[:1] == t[:1] and _edit_distance(word, t) <= 1):
+                return True
+    return False
+
+
+def build_prompts(keywords: list[str], brand: str, limit: int = MAX_PROMPTS, qualifier: str | None = None,
+                  tokens: set[str] | None = None) -> list[str]:
+    named = f"{brand} ({qualifier})" if brand and qualifier else brand
+    prompts = [f"What is {named} and what does it offer?"] if brand else []
     for kw in keywords:
+        if tokens and is_branded(kw, tokens):
+            continue
         for t in PROMPT_TEMPLATES:
             prompts.append(t.format(keyword=kw))
     seen: dict[str, None] = {}
@@ -36,9 +79,12 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     if not (s.dataforseo_login and s.dataforseo_password) and not params.get("_transport"):
         ctx.gap("DATAFORSEO credentials not set", "all")
         return
+    brand = project.display_name or project.slug
     keywords = params.get("keywords") or [r["keyword"] for r in ctx.read(
-        "select keyword from keywords where project_id = %(project_id)s and not blocked_for_index order by (mapped_url is null), keyword limit 6")]
-    prompts = params.get("prompts") or build_prompts(keywords, project.display_name or project.slug, int(params.get("max_prompts", MAX_PROMPTS)))
+        "select keyword from keywords where project_id = %(project_id)s and not blocked_for_index order by (mapped_url is null), keyword limit 40")]
+    qualifier = project.brand_context_terms[0] if project.brand_context_terms else None
+    prompts = params.get("prompts") or build_prompts(keywords, brand, int(params.get("max_prompts", MAX_PROMPTS)), qualifier,
+                                                     brand_tokens(brand, project.domains, project.brand_context_terms))
     if not prompts:
         ctx.gap("no prompts: the project has no tracked keywords yet", "all")
         return
@@ -46,7 +92,7 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     country = params.get("country_iso", "IN")
     domains = {d.lower().removeprefix("www.") for d in project.domains}
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
-    with client(transport=params.get("_transport"), auth=auth) as http:
+    with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         for platform in platforms:
             model = params.get("models", {}).get(platform) or DEFAULT_MODELS.get(platform)
             if not model:
@@ -56,7 +102,10 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 ratelimit.acquire("dataforseo")
                 body = {"user_prompt": prompt, "model_name": model, "web_search": True, "max_output_tokens": 1024}
                 if platform == "chat_gpt":
+                    # Without force, ChatGPT often answers from memory and cites nothing, so the prompt
+                    # cannot show whether the site would be cited.
                     body["web_search_country_iso_code"] = country
+                    body["force_web_search"] = True
                 r = http.post(API.format(platform=platform), json=[body])
                 if r.status_code != 200:
                     ctx.gap(f"llm responses ({platform}) returned {r.status_code}", prompt)

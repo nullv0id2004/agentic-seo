@@ -104,13 +104,21 @@ def compute_metrics(inp: AnalystInput) -> tuple[list[MetricOut], list[Caveat], s
     if llm_metrics and "llm_mentions" not in gapped:
         latest_run = _latest_run(llm_metrics)
         rows = [r for r in llm_metrics if str(r["run_id"]) == latest_run]
-        for kind in ("domain", "brand"):
+        for kind in ("domain",):   # brand aggregates count every brand of the same name; see llm_brand_* below
             sub = [r for r in rows if r.get("target_kind") == kind]
             if sub:
                 metrics.append(MetricOut(evidence_ref=sub[0]["id"], name=f"llm_mentions_{kind}", value=float(sum(r.get("mentions") or 0 for r in sub)),
                                          period=period, derived_from_rows=len(sub)))
                 metrics.append(MetricOut(evidence_ref=sub[0]["id"], name=f"llm_ai_search_volume_{kind}", value=float(sum(r.get("ai_search_volume") or 0 for r in sub)),
                                          period=period, derived_from_rows=len(sub)))
+    brand_rows = [r for r in inp.table("raw_llm_mentions") if r.get("target_kind") == "brand"]
+    if brand_rows and "llm_mentions" not in gapped:
+        latest_run = _latest_run(brand_rows)
+        rows = [r for r in brand_rows if str(r["run_id"]) == latest_run]
+        ours = [r for r in rows if r.get("about_project")]
+        metrics.append(MetricOut(evidence_ref=rows[0]["id"], name="llm_brand_answers_sampled", value=float(len(rows)), period=period, derived_from_rows=len(rows)))
+        metrics.append(MetricOut(evidence_ref=(ours or rows)[0]["id"], name="llm_brand_answers_about_project", value=float(len(ours)),
+                                 period=period, derived_from_rows=len(rows)))
     responses = inp.table("raw_llm_responses")
     if responses and "llm_responses" not in gapped:
         latest_run = _latest_run(responses)

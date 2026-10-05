@@ -29,4 +29,6 @@ brand_rules:
   - {type: banned_phrase, pattern: '\bCandidate\b',                       severity: block, rationale: 'use Job Seeker on public pages'}
   - {type: regex,         pattern: 'you[^.]{0,40}(cheap|invisible|exposed)', severity: block}
 keyword_seeds: [job search platform, recruiter software, hiring platform india]
+# "KORUM" is also a fishing tackle brand and an Indian election app. These terms tell AI answers about this site apart.
+brand_context_terms: [WorldHire, job, hiring, recruit, employer, job seeker]
 cross_link_exclusions: [worldhire]

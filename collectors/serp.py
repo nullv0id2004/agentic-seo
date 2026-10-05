@@ -25,7 +25,7 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
         return
     location = params.get("location_code", 2356)  # India
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
-    with client(transport=params.get("_transport"), auth=auth) as http:
+    with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         for q in queries:
             ratelimit.acquire("dataforseo")
             r = http.post(API, json=[{"keyword": q, "location_code": location, "language_code": "en", "device": "desktop", "depth": 20}])

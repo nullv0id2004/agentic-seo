@@ -17,6 +17,7 @@ class CollectorResult:
     rows_written: int = 0
     gaps: int = 0
     partial: bool = False
+    cost_usd: float = 0.0                  # what paid APIs reported charging for this collector's calls
     detail: dict[str, Any] = field(default_factory=dict)
 
 
@@ -59,6 +60,9 @@ class CollectorContext:
         })
         self.result.gaps += 1
         self.result.partial = True
+
+    def add_cost(self, usd: float) -> None:
+        self.result.cost_usd += usd
 
     def read(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         return self.scope.fetchall(sql, params)

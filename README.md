@@ -114,8 +114,20 @@ Three collectors, all fail closed without `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSW
 | `llm_responses` | weekly_monitor | `raw_llm_responses` | `<platform>/llm_responses/live`, ChatGPT by default with web search on |
 
 Prompts are built deterministically from the tracked keywords and the brand (`collectors/llm_responses.py`,
-`build_prompts`), capped at 12 per platform per run. `cites_project` is computed in the collector from the
-source domains. The report analyst emits `llm_mentions_*`, `llm_ai_search_volume_*`, `llm_prompts_asked`
-and `llm_prompts_citing_site`; the trend analyst emits `ai_citation_change` when a prompt starts or stops
-citing the site. Location defaults to 2840 (United States) because ChatGPT mention data exists only there;
-pass `ai_location_code` / `country_iso` as collector params to change it.
+`build_prompts`), capped at 12 per platform per run. Branded keywords and one-edit misspellings of the brand
+or domain labels are skipped, and ChatGPT is asked with `force_web_search` so every answer can cite.
+`cites_project` is computed in the collector from the source domains.
+
+Brands share names (KORUM is also a fishing tackle maker and an election app), so the project's
+`brand_context_terms` (YAML, column added in migration 0009) disambiguate: the first term qualifies the
+brand in prompts ("KORUM (WorldHire)"), and a brand mention row gets `about_project` only when it cites a
+project domain or names one of the terms. Aggregates come from the domain only. The report analyst emits
+`llm_mentions_domain`, `llm_ai_search_volume_domain`, `llm_brand_answers_sampled`,
+`llm_brand_answers_about_project`, `llm_prompts_asked` and `llm_prompts_citing_site`; the trend analyst
+emits `ai_citation_change` when a prompt starts or stops citing the site. Location defaults to 2840 (United
+States) because ChatGPT mention data exists only there; pass `ai_location_code` / `country_iso` as
+collector params to change it.
+
+DataForSEO reports its charge in every response. The shared HTTP client passes it to the collector, the
+agent log records it, and so the run's `cost_usd` and the monthly budget check include API spend, not only
+model tokens.

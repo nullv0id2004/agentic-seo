@@ -67,7 +67,8 @@ class Runtime:
         res = _collect(name, project, run_id, merged, db_url=self.db_url)
         with self.scope(project.id) as s:
             log_agent(s, run_id, name, "collector", "partial" if res.partial else "ok",
-                      {"rows_written": res.rows_written, "gaps": res.gaps, **{k: v for k, v in res.detail.items() if k != "exception"}})
+                      {"rows_written": res.rows_written, "gaps": res.gaps, **{k: v for k, v in res.detail.items() if k != "exception"}},
+                      cost_usd=round(res.cost_usd, 6))
         return res
 
     # ---- analysts ----

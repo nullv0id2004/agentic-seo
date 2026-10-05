@@ -1,8 +1,10 @@
 """DataForSEO LLM Mentions: where the site and the brand appear in AI answers.
 
-Two calls per target. target_metrics_lite gives the aggregate (mentions, AI search volume) per
-platform; search_mentions gives the individual questions, answers and the sources the model relied
-on. cites_project is computed here, deterministically, from the source domains.
+target_metrics_lite gives the domain's aggregate (mentions, AI search volume) per platform.
+search_mentions, called once for the domain and once for the brand, gives the individual questions,
+answers and the sources the model relied on. cites_project and about_project are computed here,
+deterministically: a brand row is about the project only if it cites a project domain or names one of
+the project's brand_context_terms, because other brands share the name.
 
 Platform coverage is DataForSEO's: ChatGPT data exists for the United States and English only, so the
 default location is 2840. Google AI Overview data follows the same location unless ai_location_code
@@ -57,6 +59,17 @@ def _task(ctx: CollectorContext, http, api: str, body: dict[str, Any], scope: st
     return (task.get("result") or [None])[0]
 
 
+def about_project(text: str, sources: list[dict[str, Any]], domains: set[str], brand: str, context_terms: list[str]) -> bool:
+    """A brand mention counts for this project when the answer cites one of its domains, or names the
+    brand together with one of its context terms. With no context terms the brand is taken as unambiguous."""
+    if cites(sources, domains):
+        return True
+    low = (text or "").lower()
+    if brand.lower() not in low:
+        return False
+    return not context_terms or any(t.lower() in low for t in context_terms)
+
+
 def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     s = get_settings()
     project = ctx.project
@@ -67,33 +80,38 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     language = params.get("language_code", "en")
     domains = {d.lower().removeprefix("www.") for d in project.domains}
     brand = (project.display_name or project.slug).strip()
-    targets = [
-        ("domain", project.primary_domain, [{"domain": project.primary_domain.removeprefix("www."), "include_subdomains": True}]),
-        ("brand", brand, [{"keyword": brand, "search_scope": ["answer", "brand_entities"]}]),
-    ]
+    domain_target = [{"domain": project.primary_domain.removeprefix("www."), "include_subdomains": True}]
+    brand_target = [{"keyword": brand, "search_scope": ["answer", "brand_entities"]}]
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
-    with client(transport=params.get("_transport"), auth=auth) as http:
-        for kind, label, target in targets:
-            result = _task(ctx, http, METRICS_API, {"target": target, "location_code": location, "language_code": language}, f"metrics:{label}")
-            for it in (result or {}).get("items") or []:
-                m = it.get("metrics") or {}
-                ctx.write("raw_llm_mention_metrics", {
-                    "target": label, "target_kind": kind, "platform": it.get("platform") or "unknown",
-                    "location_code": it.get("location") or location, "language_code": it.get("language") or language,
-                    "mentions": m.get("mentions"), "ai_search_volume": m.get("ai_search_volume"),
-                })
-        body = {"target": [t for _, _, tt in targets for t in tt], "location_code": location, "language_code": language,
-                "limit": int(params.get("mention_limit", MENTION_LIMIT)), "order_by": ["ai_search_volume,desc"]}
-        result = _task(ctx, http, SEARCH_API, body, "search_mentions")
+    with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
+        # Aggregates for the domain only. A brand keyword aggregate counts every brand of the same name
+        # (KORUM the fishing tackle maker included), so brand visibility is counted row by row below.
+        result = _task(ctx, http, METRICS_API, {"target": domain_target, "location_code": location, "language_code": language},
+                       f"metrics:{project.primary_domain}")
         for it in (result or {}).get("items") or []:
-            sources = [{"rank": x.get("rank"), "domain": x.get("domain"), "url": x.get("url"), "title": x.get("title")}
-                       for x in (it.get("sources") or [])]
-            ctx.write("raw_llm_mentions", {
-                "platform": it.get("platform") or "unknown", "model_name": it.get("model_name"),
-                "location_code": it.get("location_code") or location, "language_code": it.get("language_code") or language,
-                "question": it.get("question") or "", "answer": it.get("answer"), "sources": jsonb(sources),
-                "cites_project": cites(sources, domains), "ai_search_volume": it.get("ai_search_volume"),
-                "is_web_search_based": it.get("is_web_search_based"),
-                "brand_entities": jsonb([{"rank": b.get("rank"), "title": b.get("title"), "category": b.get("category")} for b in (it.get("brand_entities") or [])]),
-                "first_response_at": it.get("first_response_at"), "last_response_at": it.get("last_response_at"),
+            m = it.get("metrics") or {}
+            ctx.write("raw_llm_mention_metrics", {
+                "target": project.primary_domain, "target_kind": "domain", "platform": it.get("platform") or "unknown",
+                "location_code": it.get("location") or location, "language_code": it.get("language") or language,
+                "mentions": m.get("mentions"), "ai_search_volume": m.get("ai_search_volume"),
             })
+        # One search per target: entities in one request are combined, so domain AND brand matched nothing.
+        for kind, target in (("domain", domain_target), ("brand", brand_target)):
+            body = {"target": target, "location_code": location, "language_code": language,
+                    "limit": int(params.get("mention_limit", MENTION_LIMIT)), "order_by": ["ai_search_volume,desc"]}
+            result = _task(ctx, http, SEARCH_API, body, f"search_mentions:{kind}")
+            for it in (result or {}).get("items") or []:
+                sources = [{"rank": x.get("rank"), "domain": x.get("domain"), "url": x.get("url"), "title": x.get("title")}
+                           for x in (it.get("sources") or [])]
+                entities = [{"rank": b.get("rank"), "title": b.get("title"), "category": b.get("category")} for b in (it.get("brand_entities") or [])]
+                text = " ".join([it.get("answer") or "", *(f"{b['title']} {b['category']}" for b in entities if b.get("title"))])
+                ctx.write("raw_llm_mentions", {
+                    "platform": it.get("platform") or "unknown", "model_name": it.get("model_name"),
+                    "location_code": it.get("location_code") or location, "language_code": it.get("language_code") or language,
+                    "question": it.get("question") or "", "answer": it.get("answer"), "sources": jsonb(sources),
+                    "cites_project": cites(sources, domains), "ai_search_volume": it.get("ai_search_volume"),
+                    "is_web_search_based": it.get("is_web_search_based"), "brand_entities": jsonb(entities),
+                    "first_response_at": it.get("first_response_at"), "last_response_at": it.get("last_response_at"),
+                    "target_kind": kind,
+                    "about_project": True if kind == "domain" else about_project(text, sources, domains, brand, project.brand_context_terms),
+                })

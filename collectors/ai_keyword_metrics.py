@@ -30,7 +30,7 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     location = int(params.get("ai_location_code", 2840))
     language = params.get("language_code", "en")
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
-    with client(transport=params.get("_transport"), auth=auth) as http:
+    with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         for i in range(0, len(keywords), BATCH):
             batch = keywords[i:i + BATCH]
             ratelimit.acquire("dataforseo")

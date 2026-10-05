@@ -18,7 +18,7 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
         return
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
     target = ctx.project.primary_domain
-    with client(transport=params.get("_transport"), auth=auth) as http:
+    with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         ratelimit.acquire("dataforseo")
         r = http.post(API, json=[{"target": target, "mode": "one_per_domain", "limit": int(params.get("limit", 1000)), "filters": ["dofollow", "=", True]}])
         if r.status_code != 200:

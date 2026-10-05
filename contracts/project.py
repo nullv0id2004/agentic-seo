@@ -64,6 +64,9 @@ class ProjectConfig(BaseModel):
     github_repo: str | None = None          # owner/repo for fix PRs
     cms_publish_url: str | None = None      # publish endpoint for approved drafts
     keyword_seeds: list[str] = Field(default_factory=list)
+    # Words that tell this brand apart from others sharing its name. The first one qualifies the brand in
+    # AI prompts ("KORUM (WorldHire)"); any of them in an AI answer marks a brand mention as about this project.
+    brand_context_terms: list[str] = Field(default_factory=list)
     cross_link_exclusions: list[str] = Field(default_factory=list)  # slugs whose primary keywords this project may not claim
 
     @field_validator("slug")
@@ -99,6 +102,7 @@ class Project(BaseModel):
     monthly_content_cap: int = 4
     critical_paths: list[str] = Field(default_factory=list)
     keyword_seeds: list[str] = Field(default_factory=list)
+    brand_context_terms: list[str] = Field(default_factory=list)
     github_repo: str | None = None
     cms_publish_url: str | None = None
     active: bool = True

@@ -211,7 +211,7 @@ def test_ga4_filters_to_the_project_hosts(worker_url, seeded, monkeypatch):
 
 
 def _dfs_task(result: dict) -> dict:
-    return {"status_code": 20000, "tasks": [{"status_code": 20000, "status_message": "Ok.", "cost": 0.002, "result": [result]}]}
+    return {"status_code": 20000, "cost": 0.002, "tasks": [{"status_code": 20000, "status_message": "Ok.", "cost": 0.002, "result": [result]}]}
 
 
 def test_ai_keyword_metrics_writes_ai_search_volume(worker_url, seeded):
@@ -237,39 +237,68 @@ def test_ai_keyword_metrics_writes_ai_search_volume(worker_url, seeded):
     assert rows[1]["ai_search_volume"] is None
 
 
-def test_llm_mentions_records_metrics_and_whether_sources_cite_the_site(worker_url, seeded):
+def test_llm_mentions_searches_each_target_and_keeps_only_this_brand(worker_url, seeded):
+    """Run b45765f5: the brand aggregate counted KORUM the fishing tackle maker, and one search_mentions call
+    with both targets (combined with AND) returned nothing."""
     import httpx
 
     calls = []
 
     def handle(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)[0]
-        calls.append((request.url.path, body["target"]))
+        calls.append((request.url.path.rsplit("/", 2)[-2], body["target"]))
         if request.url.path.endswith("/target_metrics_lite/live"):
             return httpx.Response(200, json=_dfs_task({"items": [
                 {"location": 2840, "language": "en", "platform": "chat_gpt", "metrics": {"mentions": 3, "ai_search_volume": 1200}},
                 {"location": 2840, "language": "en", "platform": "google", "metrics": {"mentions": 1, "ai_search_volume": 40}},
             ]}))
+        if "domain" in body["target"][0]:
+            return httpx.Response(200, json=_dfs_task({"items": [
+                {"platform": "chat_gpt", "model_name": "gpt-4o", "question": "best hiring platforms in india", "answer": "Options include KORUM.", "ai_search_volume": 500,
+                 "sources": [{"rank": 1, "domain": "www.korum.worldhire.com", "url": "https://korum.worldhire.com/jobs", "title": "Jobs"}],
+                 "brand_entities": [{"rank": 1, "title": "KORUM", "category": "recruitment"}]},
+            ]}))
         return httpx.Response(200, json=_dfs_task({"items": [
-            {"platform": "chat_gpt", "model_name": "gpt-4o", "location_code": 2840, "language_code": "en",
-             "question": "best hiring platforms in india", "answer": "KORUM is one option…", "ai_search_volume": 500, "is_web_search_based": True,
-             "sources": [{"rank": 1, "domain": "www.korum.worldhire.com", "url": "https://korum.worldhire.com/jobs", "title": "Jobs"}],
-             "brand_entities": [{"rank": 1, "title": "KORUM", "category": "recruitment"}], "first_response_at": "2026-09-20 10:00:00 +00:00", "last_response_at": "2026-10-01 10:00:00 +00:00"},
-            {"platform": "google", "model_name": "google_ai_overview", "question": "recruiter software", "answer": "Options include…", "ai_search_volume": 50,
-             "sources": [{"rank": 1, "domain": "example.com", "url": "https://example.com/x", "title": "x"}]},
+            {"platform": "google", "model_name": "google_ai_overview", "question": "best carp rods", "answer": "Korum makes rods and reels for carp anglers.",
+             "ai_search_volume": 9000, "sources": [{"rank": 1, "domain": "korum.co.uk", "url": "https://korum.co.uk/", "title": "Korum"}]},
+            {"platform": "chat_gpt", "model_name": "gpt-4o", "question": "new job sites in india", "answer": "KORUM by WorldHire lists jobs for job seekers.",
+             "ai_search_volume": 30, "sources": []},
         ]}))
 
     project = _project(worker_url, seeded)
+    assert project.brand_context_terms[0] == "WorldHire"
     run_id = uuid.uuid4()
     res = collect("llm_mentions", project, run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
-    assert not res.partial and res.rows_written == 6, "2 metrics rows per target x 2 targets, plus 2 mentions"
-    assert [c[1][0].get("domain") or c[1][0].get("keyword") for c in calls[:2]] == ["korum.worldhire.com", "KORUM"]
+    assert not res.partial and res.rows_written == 5, "2 domain metrics rows, 1 domain mention, 2 brand mentions"
+    assert [(c[0], c[1]) for c in calls] == [
+        ("target_metrics_lite", [{"domain": "korum.worldhire.com", "include_subdomains": True}]),
+        ("search_mentions", [{"domain": "korum.worldhire.com", "include_subdomains": True}]),
+        ("search_mentions", [{"keyword": "KORUM", "search_scope": ["answer", "brand_entities"]}]),
+    ], "no brand aggregate, and one search per target"
+    assert round(res.cost_usd, 6) == 0.006, "every DataForSEO call's cost reaches the collector result"
     with project_scope(project.id, url=worker_url) as s:
-        metrics = s.fetchall("select target_kind, platform, mentions, ai_search_volume from raw_llm_mention_metrics where project_id = %(project_id)s and run_id = %(run_id)s order by target_kind, platform", {"run_id": run_id})
-        mentions = s.fetchall("select platform, cites_project, sources, brand_entities from raw_llm_mentions where project_id = %(project_id)s and run_id = %(run_id)s order by platform", {"run_id": run_id})
-    assert [(m["target_kind"], m["platform"], m["mentions"]) for m in metrics] == [("brand", "chat_gpt", 3), ("brand", "google", 1), ("domain", "chat_gpt", 3), ("domain", "google", 1)]
-    assert mentions[0]["platform"] == "chat_gpt" and mentions[0]["cites_project"] is True and mentions[0]["brand_entities"][0]["title"] == "KORUM"
-    assert mentions[1]["platform"] == "google" and mentions[1]["cites_project"] is False
+        metrics = s.fetchall("select target_kind, platform, mentions from raw_llm_mention_metrics where project_id = %(project_id)s and run_id = %(run_id)s order by platform", {"run_id": run_id})
+        mentions = s.fetchall("select target_kind, question, cites_project, about_project, brand_entities from raw_llm_mentions where project_id = %(project_id)s and run_id = %(run_id)s order by target_kind, question", {"run_id": run_id})
+    assert [(m["target_kind"], m["platform"], m["mentions"]) for m in metrics] == [("domain", "chat_gpt", 3), ("domain", "google", 1)]
+    by_q = {m["question"]: m for m in mentions}
+    assert by_q["best hiring platforms in india"]["target_kind"] == "domain" and by_q["best hiring platforms in india"]["cites_project"] is True
+    assert by_q["best hiring platforms in india"]["brand_entities"][0]["title"] == "KORUM"
+    assert by_q["best carp rods"]["about_project"] is False, "the fishing tackle Korum is not this project"
+    assert by_q["new job sites in india"]["about_project"] is True and by_q["new job sites in india"]["cites_project"] is False
+
+
+def test_brand_prompts_skip_branded_and_misspelled_keywords():
+    from collectors.llm_responses import brand_tokens, build_prompts, is_branded
+
+    tokens = brand_tokens("KORUM", ["korum.worldhire.com"], ["WorldHire", "job"])
+    assert tokens == {"korum", "worldhire"}
+    assert all(is_branded(k, tokens) for k in ("kourm", "worldhire", "world hire", "korum jobs", "korm"))
+    assert not any(is_branded(k, tokens) for k in ("job search platform", "hiring platform india", "forum", "form builder", "work hire"))
+    assert build_prompts(["kourm", "job search platform", "worldhire"], "KORUM", qualifier="WorldHire", tokens=tokens) == [
+        "What is KORUM (WorldHire) and what does it offer?",
+        "What are the best options for job search platform in India?",
+        "Which websites should I use for job search platform?",
+    ]
 
 
 def test_llm_responses_asks_deterministic_prompts_and_marks_citations(worker_url, seeded):
@@ -297,8 +326,30 @@ def test_llm_responses_asks_deterministic_prompts_and_marks_citations(worker_url
     run_id = uuid.uuid4()
     res = collect("llm_responses", project, run_id, {"_transport": httpx.MockTransport(handle), "keywords": ["job search platform"]}, db_url=worker_url)
     assert not res.partial and res.rows_written == 3
-    assert all(b["web_search"] is True and b["model_name"] == "gpt-4.1" and b["web_search_country_iso_code"] == "IN" for b in asked)
+    assert all(b["web_search"] is True and b["force_web_search"] is True and b["model_name"] == "gpt-4.1" and b["web_search_country_iso_code"] == "IN" for b in asked)
+    assert asked[0]["user_prompt"] == "What is KORUM (WorldHire) and what does it offer?"
+    assert round(res.cost_usd, 6) == 0.006
     with project_scope(project.id, url=worker_url) as s:
         rows = s.fetchall("select prompt, cites_project, citations, fan_out_queries, cost_usd from raw_llm_responses where project_id = %(project_id)s and run_id = %(run_id)s order by cites_project desc, prompt", {"run_id": run_id})
     assert rows[0]["prompt"].startswith("What is KORUM") and rows[0]["cites_project"] is True and rows[0]["citations"][0]["url"] == "https://korum.worldhire.com/"
     assert all(r["cites_project"] is False for r in rows[1:]) and rows[0]["fan_out_queries"] == ["korum hiring platform"] and float(rows[0]["cost_usd"]) == 0.002
+
+
+def test_paid_api_cost_reaches_the_agent_log_and_the_run_budget(worker_url, seeded):
+    """Run b45765f5 spent about USD 0.53 at DataForSEO and recorded USD 0.0006: only model tokens were
+    counted, so the monthly budget check could not see collector spend."""
+    import httpx
+
+    from orchestrator.runtime import Runtime
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_dfs_task({"items": []}))
+
+    project = _project(worker_url, seeded)
+    run_id = uuid.uuid4()
+    rt = Runtime(db_url=worker_url, model="fake", collector_overrides={"*": {"_transport": httpx.MockTransport(handle)}})
+    res = rt.run_collector(project, run_id, "llm_mentions")
+    assert round(res.cost_usd, 6) == 0.006
+    with project_scope(project.id, url=worker_url) as s:
+        row = s.fetchone("select cost_usd from agent_logs where project_id = %(project_id)s and run_id = %(run_id)s and agent = 'llm_mentions'", {"run_id": run_id})
+    assert float(row["cost_usd"]) == 0.006

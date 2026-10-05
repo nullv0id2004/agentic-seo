@@ -35,7 +35,7 @@ def print_sql() -> None:
             "approver_id": str(cfg.approver_id), "monthly_cost_cap_usd": cfg.monthly_cost_cap_usd, "enabled_agents": cfg.enabled_agents,
             "allowed_schema_types": cfg.allowed_schema_types, "monthly_content_cap": cfg.monthly_content_cap,
             "critical_paths": cfg.critical_paths, "github_repo": cfg.github_repo, "cms_publish_url": cfg.cms_publish_url,
-            "keyword_seeds": cfg.keyword_seeds,
+            "keyword_seeds": cfg.keyword_seeds, "brand_context_terms": cfg.brand_context_terms,
         }
         updates = ", ".join(f"{k} = excluded.{k}" for k in cols if k != "slug")
         print(f"insert into projects ({', '.join(cols)}) values ({', '.join(_lit(v) for v in cols.values())})")
