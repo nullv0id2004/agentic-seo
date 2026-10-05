@@ -121,7 +121,8 @@ or domain labels are skipped, and ChatGPT is asked with `force_web_search` so ev
 Brands share names (KORUM is also a fishing tackle maker and an election app), so the project's
 `brand_context_terms` (YAML, column added in migration 0009) disambiguate: the first term qualifies the
 brand in prompts ("KORUM (WorldHire)"), and a brand mention row gets `about_project` only when it cites a
-project domain or names one of the terms. Aggregates come from the domain only. The report analyst emits
+project domain or names one of the terms. The brand search returns at most 20 rows (`brand_mention_limit`), since
+DataForSEO bills per row and most rows for a shared name are other brands; the domain search keeps 100. Aggregates come from the domain only. The report analyst emits
 `llm_mentions_domain`, `llm_ai_search_volume_domain`, `llm_brand_answers_sampled`,
 `llm_brand_answers_about_project`, `llm_prompts_asked` and `llm_prompts_citing_site`; the trend analyst
 emits `ai_citation_change` when a prompt starts or stops citing the site. Location defaults to 2840 (United

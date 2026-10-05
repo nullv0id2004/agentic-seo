@@ -24,6 +24,9 @@ from db.connection import jsonb
 METRICS_API = "https://api.dataforseo.com/v3/ai_optimization/llm_mentions/target_metrics_lite/live"
 SEARCH_API = "https://api.dataforseo.com/v3/ai_optimization/llm_mentions/search_mentions/live"
 MENTION_LIMIT = 100
+# The brand keyword matches every brand of the same name and DataForSEO bills per row returned. Run
+# 7bdd20ae paid about USD 0.40 a week for 100 brand rows, none of them about this project.
+BRAND_MENTION_LIMIT = 20
 
 
 def _domain_of(url: str | None) -> str:
@@ -113,9 +116,11 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 "mentions": m.get("mentions"), "ai_search_volume": m.get("ai_search_volume"),
             })
         # One search per target: entities in one request are combined, so domain AND brand matched nothing.
+        limits = {"domain": int(params.get("mention_limit", MENTION_LIMIT)),
+                  "brand": int(params.get("brand_mention_limit", BRAND_MENTION_LIMIT))}
         for kind, target in (("domain", domain_target), ("brand", brand_target)):
             body = {"target": target, "location_code": location, "language_code": language,
-                    "limit": int(params.get("mention_limit", MENTION_LIMIT)), "order_by": ["ai_search_volume,desc"]}
+                    "limit": limits[kind], "order_by": ["ai_search_volume,desc"]}
             result = _task(ctx, http, SEARCH_API, body, f"search_mentions:{kind}")
             for it in (result or {}).get("items") or []:
                 sources = [{"rank": x.get("rank"), "domain": x.get("domain"), "url": x.get("url"), "title": x.get("title")}

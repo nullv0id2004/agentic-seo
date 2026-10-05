@@ -246,7 +246,7 @@ def test_llm_mentions_searches_each_target_and_keeps_only_this_brand(worker_url,
 
     def handle(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)[0]
-        calls.append((request.url.path.rsplit("/", 2)[-2], body["target"]))
+        calls.append((request.url.path.rsplit("/", 2)[-2], body["target"], body.get("limit")))
         if request.url.path.endswith("/target_metrics_lite/live"):
             return httpx.Response(200, json=_dfs_task({"items": [
                 {"location": 2840, "language": "en", "platform": "chat_gpt", "metrics": {"mentions": 3, "ai_search_volume": 1200}},
@@ -274,6 +274,7 @@ def test_llm_mentions_searches_each_target_and_keeps_only_this_brand(worker_url,
     run_id = uuid.uuid4()
     res = collect("llm_mentions", project, run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
     assert not res.partial and res.rows_written == 7, "2 domain metrics rows, 1 domain mention, 4 brand mentions"
+    assert [c[2] for c in calls[1:]] == [100, 20], "brand rows are billed and mostly other brands: 20, not 100"
     assert [(c[0], c[1]) for c in calls] == [
         ("target_metrics_lite", [{"domain": "korum.worldhire.com", "include_subdomains": True}]),
         ("search_mentions", [{"domain": "korum.worldhire.com", "include_subdomains": True}]),
