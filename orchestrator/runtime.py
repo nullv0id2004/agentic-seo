@@ -43,6 +43,8 @@ class Runtime:
     analyst_overrides: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # A model passed in (tests, one-off runs) applies to every agent; otherwise per-agent overrides apply.
+        self._fixed_model = self.model is not None
         self.model = self.model or get_settings().analyst_model
 
     def get_llm(self) -> LLMClient:
@@ -111,7 +113,8 @@ class Runtime:
         with self.scope(project.id) as s:
             rows = self.read_for(s, name, run_id, params)
         digest = hashlib.sha256(json.dumps(rows, default=str, sort_keys=True).encode()).hexdigest()[:16]
-        ctx = AnalystContext(llm=self.get_llm(), model=self.model)
+        model = self.model if self._fixed_model else get_settings().agent_models.get(name, self.model)
+        ctx = AnalystContext(llm=self.get_llm(), model=model)
         inp = AnalystInput(project=project, run_id=run_id, rows=rows, params=params)
         try:
             artifact = ANALYSTS[name](ctx, inp)

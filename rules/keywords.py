@@ -72,9 +72,43 @@ def topic_words(keywords: list[str], brand: set[str], vertical: str | None = Non
     return [w for w, _ in counts.most_common(limit)]
 
 
-def on_topic(keyword: str, words: list[str]) -> bool:
-    """True when the keyword contains a topic word, allowing a plural or suffix ("executive" in "executives")."""
-    tokens = re.findall(r"[a-z0-9]+", keyword.lower())
-    return any(t == w or (t.startswith(w) and len(t) - len(w) <= 2) for t in tokens for w in words)
 
 
+
+# Words that place a search in the vertical's own world. A topic word alone is ambiguous: "executive" also
+# means "executive meaning in hindi" and "chief executive officer of google" (run 3fc48787), so an
+# opportunity needs a topic word AND a different word from this list.
+VERTICAL_ANCHORS: dict[str, frozenset[str]] = {
+    "recruitment": frozenset({"job", "jobs", "search", "hiring", "hire", "recruiter", "recruiters", "recruitment", "recruiting",
+                              "headhunter", "headhunters", "headhunting", "career", "careers", "role", "roles", "position",
+                              "positions", "opportunity", "opportunities", "employer", "employers", "employed", "talent",
+                              "interview", "resume", "cv", "platform", "vacancy", "vacancies", "opening", "openings", "offer"}),
+}
+
+
+def _tokens(keyword: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", keyword.lower())
+
+
+def _matches(token: str, word: str) -> bool:
+    return token == word or (token.startswith(word) and len(token) - len(word) <= 2)
+
+
+def on_topic(keyword: str, words: list[str], vertical: str | None = None) -> bool:
+    """True when the keyword contains a topic word ("executive" in "executives") and, for a vertical with
+    anchors, also a different word that places it in that vertical ("executive job search", not
+    "executive meaning")."""
+    toks = _tokens(keyword)
+    topic = [t for t in toks if any(_matches(t, w) for w in words)]
+    if not topic:
+        return False
+    anchors = VERTICAL_ANCHORS.get(vertical or "")
+    if not anchors:
+        return True
+    return any(a != t for a in toks if a in anchors for t in topic)
+
+
+def anchor_pattern(vertical: str | None) -> str | None:
+    """Regex alternation of the vertical's anchor words, for API-side filtering; None when it has none."""
+    anchors = VERTICAL_ANCHORS.get(vertical or "")
+    return "|".join(sorted(anchors)) if anchors else None

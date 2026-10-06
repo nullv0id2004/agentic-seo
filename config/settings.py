@@ -20,6 +20,9 @@ class Settings:
     pagespeed_api_key: str | None
     dataforseo_login: str | None
     dataforseo_password: str | None
+    # Per-agent model overrides, SEO_AGENT_MODELS="keyword=gpt-4.1,trend=gpt-4o-mini". The keyword analyst judges
+    # relevance; gpt-4o-mini called "meaning of professional in hindi" relevant to a senior-hiring platform.
+    agent_models: dict[str, str] = field(default_factory=dict)
     # Global rate limits per external API, requests per minute. Quotas are per key, not per site.
     rate_limits_per_minute: dict[str, int] = field(default_factory=lambda: {
         "gsc": 600, "gsc_inspection": 60, "ga4": 60, "psi": 25, "dataforseo": 60,
@@ -43,6 +46,18 @@ class Settings:
         return self.model_prices.get(model, (15.0, 75.0))  # unknown model: assume the dearest, fail closed
 
 
+def _agent_models(raw: str | None, provider: str) -> dict[str, str]:
+    """Defaults first, then SEO_AGENT_MODELS. On OpenAI the keyword analyst defaults to gpt-4.1: it runs once a
+    quarter and its relevance call decides what the project writes about."""
+    out = {"keyword": "gpt-4.1"} if provider == "openai" else {}
+    for part in (raw or "").split(","):
+        if "=" in part:
+            agent, model = (x.strip() for x in part.split("=", 1))
+            if agent and model:
+                out[agent] = model
+    return out
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     provider = os.environ.get("SEO_LLM_PROVIDER") or ("openai" if os.environ.get("OPENAI_API_KEY") and not os.environ.get("ANTHROPIC_API_KEY") else "anthropic")
@@ -57,6 +72,7 @@ def get_settings() -> Settings:
         openai_base_url=os.environ.get("OPENAI_BASE_URL"),
         analyst_model=os.environ.get("SEO_ANALYST_MODEL", default_model),
         verifier_model=os.environ.get("SEO_VERIFIER_MODEL", default_model),
+        agent_models=_agent_models(os.environ.get("SEO_AGENT_MODELS"), provider),
         pagespeed_api_key=os.environ.get("PAGESPEED_API_KEY"),
         dataforseo_login=os.environ.get("DATAFORSEO_LOGIN"),
         dataforseo_password=os.environ.get("DATAFORSEO_PASSWORD"),

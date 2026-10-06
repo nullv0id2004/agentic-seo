@@ -143,10 +143,13 @@ model tokens.
   inspection that no longer reports them, never on a crawl alone.
 - `keyword_discovery` (quarterly, before pricing) grows ideas from the seeds and tracked keywords, and
   pulls the keywords the project's configured `competitors` (YAML, migration 0013) rank for, restricted to
-  the project's topic words. Without configured competitors that part is skipped and search-result guesses
+  the project's topic words: distinctive words from the seeds (words generic to the vertical excluded),
+  and for a vertical with anchors also a second word that places the search in it ("executive job search",
+  not "executive meaning"). Without configured competitors that part is skipped and search-result guesses
   are logged as suggestions only. The top 60 by volume, minus navigational and competitor-brand searches,
   join the priced universe. The keyword analyst judges each keyword against the project's `description`
-  (migration 0014); only keywords it explicitly marks relevant and no page fits are kept unmapped in
+  (migration 0014), on gpt-4.1 by default with OpenAI (`SEO_AGENT_MODELS` overrides per agent); only keywords
+  it explicitly marks relevant, on topic, and that no page fits are kept unmapped in
   `keywords` as content opportunities (at most 40 per run), and an irrelevant keyword is never mapped.
 - The technical analyst reads crawl rows only (URL Inspection rows share `raw_crawl_pages`), and a page
   whose canonical names another URL is not an index issue: not being indexed there is the intent.

@@ -21,7 +21,7 @@ from collectors.base import CollectorContext
 from collectors.http import client
 from config.settings import get_settings
 from rules.domains import registrable
-from rules.keywords import brand_tokens, is_branded, topic_words
+from rules.keywords import anchor_pattern, brand_tokens, is_branded, topic_words
 
 IDEAS_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live"
 RANKED_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live"
@@ -106,10 +106,12 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
         ctx.gap("no distinctive topic words in the seeds; discovery would return the whole vertical", "all")
         return
     topic = "|".join(re.escape(w) for w in words)
+    anchors = anchor_pattern(project.vertical)
     with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         if seeds:
             body = {"keywords": seeds[:200], "location_code": location, "language_code": language, "limit": int(params.get("ideas_limit", IDEAS_LIMIT)),
-                    "filters": [["keyword_info.search_volume", ">", 0], "and", ["keyword", "regex", topic]], "order_by": ["relevance,desc"]}
+                    "filters": [["keyword_info.search_volume", ">", 0], "and", ["keyword", "regex", topic],
+                                *(["and", ["keyword", "regex", anchors]] if anchors else [])], "order_by": ["relevance,desc"]}
             result = _task(ctx, http, IDEAS_API, body, "ideas")
             for it in (result or {}).get("items") or []:
                 kw = (it.get("keyword") or "").lower()
@@ -119,7 +121,9 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
             ctx.gap("no seeds or tracked keywords to expand", "ideas")
         for comp in competitors:
             body = {"target": comp, "location_code": location, "language_code": language, "limit": int(params.get("competitor_limit", COMPETITOR_LIMIT)),
-                    "item_types": ["organic"], "filters": ["keyword_data.keyword", "regex", topic],
+                    "item_types": ["organic"],
+                    "filters": [["keyword_data.keyword", "regex", topic], "and", ["keyword_data.keyword", "regex", anchors]] if anchors
+                    else ["keyword_data.keyword", "regex", topic],
                     "order_by": ["keyword_data.keyword_info.search_volume,desc"]}
             result = _task(ctx, http, RANKED_API, body, comp)
             for it in (result or {}).get("items") or []:

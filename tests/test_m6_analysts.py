@@ -342,3 +342,12 @@ def test_index_issues_name_googles_reason_and_skip_pages_meant_to_stay_out(worke
         (base + "/c", "index_canonical_mismatch", "high"),
         (base + "/d", "index_blocked_by_robots", "high"),
     }, "the noindex login page and the page canonical to worldhire.com are meant to stay out"
+
+
+def test_keyword_analyst_model_can_differ_from_the_default(monkeypatch):
+    """SEO_AGENT_MODELS overrides one agent's model; on OpenAI the keyword analyst defaults to gpt-4.1."""
+    from config.settings import _agent_models
+
+    assert _agent_models(None, "openai") == {"keyword": "gpt-4.1"}
+    assert _agent_models("keyword=gpt-4o, trend = gpt-4.1-mini", "openai") == {"keyword": "gpt-4o", "trend": "gpt-4.1-mini"}
+    assert _agent_models(None, "anthropic") == {}

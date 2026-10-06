@@ -48,7 +48,7 @@ def opportunities(project: Project, proposals: list[dict]) -> list[dict]:
     seeds = {k.lower() for k in project.keyword_seeds}
     return [k for k in proposals if not k.get("mapped_url") and not k.get("blocked_for_index")
             and k.get("intent") != "navigational" and k.get("relevant") is True
-            and (k["keyword"].lower() in seeds or on_topic(k["keyword"], words))]
+            and (k["keyword"].lower() in seeds or on_topic(k["keyword"], words, project.vertical))]
 
 
 def keyword_universe(scope: ProjectScope, project: Project, requested: list[str]) -> list[str]:
@@ -76,7 +76,10 @@ def build(rt: Runtime) -> StateGraph:
         out["keyword_discovery"] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
         with rt.scope(project.id) as s:
             universe = keyword_universe(s, project, state.get("params", {}).get("keywords", []))
-            universe += [k for k in discovered_keywords(s, run_id, extra_brands=[brand_label(c) for c in project.competitors]) if k not in universe]
+            words = topic_words(project.keyword_seeds, brand_tokens(project.display_name or project.slug, list(project.domains),
+                                                                    project.brand_context_terms), project.vertical)
+            found = discovered_keywords(s, run_id, extra_brands=[brand_label(c) for c in project.competitors])
+            universe += [k for k in found if k not in universe and on_topic(k, words, project.vertical)]
         for name in ("keyword_metrics", "ai_keyword_metrics"):
             res = rt.run_collector(project, run_id, name, {"keywords": universe})
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
