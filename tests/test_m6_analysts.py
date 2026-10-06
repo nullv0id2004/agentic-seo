@@ -351,3 +351,15 @@ def test_keyword_analyst_model_can_differ_from_the_default(monkeypatch):
     assert _agent_models(None, "openai") == {"keyword": "gpt-4.1"}
     assert _agent_models("keyword=gpt-4o, trend = gpt-4.1-mini", "openai") == {"keyword": "gpt-4o", "trend": "gpt-4.1-mini"}
     assert _agent_models(None, "anthropic") == {}
+
+
+def test_keyword_report_carries_no_model_prose(worker_url, seeded):
+    """Run 4faf34b6: gpt-4.1 wrote em dashes into two rationale notes and the brand gate blocked the report."""
+    project = _project(worker_url, seeded)
+    m1 = uuid.uuid4()
+    rows = {"raw_keyword_metrics": [{"id": m1, "keyword": "confidential job search", "volume": 10, "volume_is_range": False, "difficulty": 5}],
+            "raw_gsc_performance": [], "keywords": [], "critical_rules": [], "raw_crawl_pages": []}
+    llm = FakeLLM({"keyword": lambda s, u, sc: {"assignments": [
+        {"keyword": "confidential job search", "relevant": True, "intent": "commercial", "rationale": "fits the niche — strongly"}]}})
+    out = run_keyword(AnalystContext(llm=llm, model="fake"), AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
+    assert out.keywords[0].rationale is None and out.keywords[0].relevant is True

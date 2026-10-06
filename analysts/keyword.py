@@ -35,13 +35,13 @@ page fits). Do not invent volumes or urls. Do not use an em dash. Say job seeker
 
 
 class _Assign(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Extra keys (a model adding its own "rationale") are dropped rather than costing a validation retry.
+    model_config = ConfigDict(extra="ignore")
     keyword: str
     relevant: bool | None = None
     intent: str | None = None
     cluster: str | None = None
     mapped_url: str | None = None
-    rationale: str | None = None
 
 
 class _Assignments(BaseModel):
@@ -114,6 +114,8 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> KeywordReport:
             volume=None if m.get("volume_is_range") else m.get("volume"),
             volume_is_range=bool(m.get("volume_is_range")), volume_low=m.get("volume_low"), volume_high=m.get("volume_high"),
             blocked_for_index=blocked, relevant=relevant,
-            rationale=("reserved by a cross-linked project" if kw in reserved else (a.rationale if a else None)),
+            # The model's free-text reasoning is not passed on: it is stored nowhere, and in run 4faf34b6 an em dash
+            # in it made the brand gate block the whole report, mappings included.
+            rationale=("reserved by a cross-linked project" if kw in reserved else None),
         ))
     return KeywordReport(agent="keyword", keywords=out)
