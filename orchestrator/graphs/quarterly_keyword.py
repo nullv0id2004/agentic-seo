@@ -13,6 +13,7 @@ from orchestrator.gate_runner import analyse_and_gate
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
 from rules.domains import brand_label
+from rules.keywords import brand_tokens, on_topic, topic_words
 
 WORKFLOW = "quarterly_keyword"
 
@@ -36,6 +37,18 @@ def discovered_keywords(scope: ProjectScope, run_id: UUID, limit: int = DISCOVER
     out = [r["keyword"] for r in rows if not r["navigational"]
            and not any(b in r["keyword"].split() or b in r["keyword"].replace(" ", "") for b in brands)]
     return out[:limit]
+
+
+def opportunities(project: Project, proposals: list[dict]) -> list[dict]:
+    """Unmapped keywords worth keeping as content to write. Each needs the analyst's explicit relevance AND,
+    unless it is a seed, a distinctive topic word from the seeds. Run b3245cad: the model called "government
+    jobs odisha" relevant to a senior-hiring platform; the topic word is the deterministic backstop."""
+    words = topic_words(project.keyword_seeds, brand_tokens(project.display_name or project.slug, list(project.domains),
+                                                            project.brand_context_terms), project.vertical)
+    seeds = {k.lower() for k in project.keyword_seeds}
+    return [k for k in proposals if not k.get("mapped_url") and not k.get("blocked_for_index")
+            and k.get("intent") != "navigational" and k.get("relevant") is True
+            and (k["keyword"].lower() in seeds or on_topic(k["keyword"], words))]
 
 
 def keyword_universe(scope: ProjectScope, project: Project, requested: list[str]) -> list[str]:
@@ -100,7 +113,7 @@ def build(rt: Runtime) -> StateGraph:
                         {"kind": "restore_previous_mapping", "previous": [{"keyword": p["keyword"], "mapped_url": current.get(p["keyword"])} for p in changes]})
                     queued.append(str(aid))
         # Keywords no existing page fits are content opportunities: tracked unmapped, never mapped here.
-        gaps = [k for k in art.get("keywords", []) if not k.get("mapped_url") and not k.get("blocked_for_index") and k.get("intent") != "navigational" and k.get("relevant") is True]
+        gaps = opportunities(project, art.get("keywords", []))
         gaps.sort(key=lambda k: -(k.get("volume") or k.get("volume_high") or 0))
         if gaps:
             with rt.scope(project.id) as s:

@@ -442,7 +442,7 @@ def test_keyword_discovery_writes_ideas_and_topic_filtered_competitor_keywords(w
     res = collect("keyword_discovery", project.model_copy(update={"competitors": ["www.naukri.com"]}), run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
     assert not res.partial and res.rows_written == 2 and round(res.cost_usd, 6) == 0.004
     ranked = [b for p, b in bodies if p.endswith("/ranked_keywords/live")][0]
-    assert ranked["target"] == "naukri.com" and ranked["filters"][:2] == ["keyword_data.keyword", "regex"] and "job" in ranked["filters"][2]
+    assert ranked["target"] == "naukri.com" and ranked["filters"][:2] == ["keyword_data.keyword", "regex"] and "confidential" in ranked["filters"][2] and "job" not in ranked["filters"][2].split("|")
     with project_scope(project.id, url=worker_url) as s:
         rows = s.fetchall("select keyword, source, competitor, competitor_rank, search_volume, keyword_difficulty, intent from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s order by source", {"run_id": run_id})
         from orchestrator.graphs.quarterly_keyword import discovered_keywords
@@ -481,3 +481,42 @@ def test_discovered_keywords_drop_brand_searches(worker_url, seeded):
                                            "search_volume": vol, "intent": intent})
     with project_scope(project.id, url=worker_url) as s:
         assert discovered_keywords(s, run_id, extra_brands=["indeed"]) == ["job search websites"]
+
+
+def test_topic_words_are_what_sets_the_project_apart(worker_url, seeded):
+    """Run b3245cad searched competitors for anything containing "job" or "hiring" and got every job-board
+    search. For the recruitment vertical those words are generic; the topic is what is left."""
+    from orchestrator.graphs.quarterly_keyword import opportunities
+    from rules.keywords import brand_tokens, on_topic, topic_words
+
+    project = _project(worker_url, seeded)
+    words = topic_words(project.keyword_seeds, brand_tokens("KORUM", project.domains, project.brand_context_terms), project.vertical)
+    assert {"senior", "confidential", "executive", "anonymous", "headhunter"} <= set(words)
+    assert not {"job", "jobs", "hiring", "while", "firm"} & set(words)
+    assert on_topic("executive search firms in india", words) and not on_topic("government jobs odisha", words)
+    kept = opportunities(project, [
+        {"keyword": "confidential job search", "relevant": True, "intent": "commercial"},
+        {"keyword": "government jobs odisha", "relevant": True, "intent": "transactional"},
+        {"keyword": "senior manager jobs", "relevant": None, "intent": "transactional"},
+        {"keyword": "executive headhunters india", "relevant": True, "intent": "commercial"},
+    ])
+    assert [k["keyword"] for k in kept] == ["confidential job search", "executive headhunters india"]
+
+
+def test_discovery_seeds_from_config_and_mapped_keywords_only(worker_url, seeded):
+    """Unmapped keyword rows are discovery's own earlier output; seeding from them fed junk back in."""
+    import httpx
+
+    bodies = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        bodies.append((request.url.path, json.loads(request.content)[0]))
+        return httpx.Response(200, json=_dfs_task({"items": []}))
+
+    project = _project(worker_url, seeded)
+    with project_scope(project.id, url=worker_url) as s:
+        s.execute("insert into keywords (project_id, keyword) values (%(project_id)s, 'sarkari job') on conflict do nothing")
+    collect("keyword_discovery", project, uuid.uuid4(), {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
+    ideas = [b for p, b in bodies if p.endswith("/keyword_ideas/live")][0]
+    assert "sarkari job" not in ideas["keywords"] and "confidential job search" in ideas["keywords"]
+    assert ideas["filters"][2][:2] == ["keyword", "regex"] and "confidential" in ideas["filters"][2][2]

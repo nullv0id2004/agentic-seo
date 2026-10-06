@@ -12,6 +12,7 @@ from collectors.http import client
 from collectors.llm_mentions import cites
 from config.settings import get_settings
 from db.connection import jsonb
+from rules.keywords import brand_tokens, is_branded
 
 API = "https://api.dataforseo.com/v3/ai_optimization/{platform}/llm_responses/live"
 DEFAULT_MODELS = {"chat_gpt": "gpt-4.1", "gemini": "gemini-2.5-flash", "claude": "claude-sonnet-4-20250514", "perplexity": "sonar"}
@@ -35,45 +36,6 @@ def request_body(platform: str, prompt: str, model: str, country: str) -> dict[s
     else:
         body["web_search"] = True
     return body
-
-
-def _edit_distance(a: str, b: str) -> int:
-    """Optimal string alignment distance: an adjacent swap ("kourm" for "korum") counts as one edit."""
-    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
-    for i in range(len(a) + 1):
-        d[i][0] = i
-    for j in range(len(b) + 1):
-        d[0][j] = j
-    for i in range(1, len(a) + 1):
-        for j in range(1, len(b) + 1):
-            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
-            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
-                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
-    return d[-1][-1]
-
-
-def brand_tokens(brand: str, domains: list[str], context_terms: list[str]) -> set[str]:
-    """Words that make a keyword navigational: the brand, the labels of the project's domains and the
-    first context term (the parent brand). Generic labels such as www and com are left out."""
-    toks = {brand.lower()} if brand else set()
-    for d in domains:
-        toks |= {x for x in d.lower().removeprefix("www.").split(".")[:-1] if len(x) > 2}
-    if context_terms:
-        toks.add(context_terms[0].lower())
-    return {t for t in toks if t}
-
-
-def is_branded(keyword: str, tokens: set[str]) -> bool:
-    """True for a keyword that names the brand, including a one-edit misspelling with the same first
-    letter ("kourm" for "korum", not "forum") and a split name ("world hire"). Asking an assistant for
-    "the best options for kourm" measures nothing."""
-    words = keyword.lower().split()
-    candidates = words + [x + y for x, y in zip(words, words[1:], strict=False)]
-    for word in candidates:
-        for t in tokens:
-            if word == t or (len(t) >= 4 and word[:1] == t[:1] and _edit_distance(word, t) <= 1):
-                return True
-    return False
 
 
 def build_prompts(keywords: list[str], brand: str, limit: int = MAX_PROMPTS, qualifier: str | None = None,

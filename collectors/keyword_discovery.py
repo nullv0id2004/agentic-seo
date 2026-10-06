@@ -19,9 +19,9 @@ from typing import Any
 from collectors import ratelimit
 from collectors.base import CollectorContext
 from collectors.http import client
-from collectors.llm_responses import brand_tokens, is_branded
 from config.settings import get_settings
 from rules.domains import registrable
+from rules.keywords import brand_tokens, is_branded, topic_words
 
 IDEAS_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live"
 RANKED_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live"
@@ -32,23 +32,6 @@ COMPETITORS = 3
 # Sites that rank for almost everything; their keyword lists say nothing about a competitor's strategy.
 GENERIC_DOMAINS = frozenset({"youtube.com", "wikipedia.org", "en.wikipedia.org", "reddit.com", "quora.com", "facebook.com",
                              "instagram.com", "x.com", "twitter.com", "pinterest.com", "medium.com", "amazon.in", "amazon.com"})
-# Words too broad to define a topic on their own.
-GENERIC_WORDS = frozenset({"best", "top", "free", "online", "india", "near", "with", "from", "what", "how", "the", "for", "and",
-                           "search", "platform", "platforms", "software", "website", "websites", "site", "sites", "services",
-                           "service", "app", "apps", "list", "2024", "2025", "2026"})
-
-
-def topic_words(keywords: list[str], brand: set[str], limit: int = 8) -> list[str]:
-    """Most frequent non-generic words across the seeds and tracked keywords. Brand words and their
-    misspellings ("kourm" for "korum", run be9ad355) are excluded."""
-    counts: Counter[str] = Counter()
-    for k in keywords:
-        for w in re.findall(r"[a-z0-9]+", k.lower()):
-            if len(w) >= 3 and w not in GENERIC_WORDS and not is_branded(w, brand):
-                counts[w] += 1
-    return [w for w, _ in counts.most_common(limit)]
-
-
 def competitors_from_serp(rows: list[dict[str, Any]], own: set[str], limit: int = COMPETITORS) -> list[str]:
     """Domains appearing most often in the top 10 of the latest check of each tracked query."""
     latest: dict[str, dict[str, Any]] = {}
@@ -102,11 +85,15 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
         return
     location = int(params.get("location_code", 2356))   # India, as for keyword_metrics
     language = params.get("language_code", "en")
-    tracked = [r["keyword"] for r in ctx.read("select keyword from keywords where project_id = %(project_id)s order by keyword limit 200")]
-    seeds = sorted({k.strip().lower() for k in [*project.keyword_seeds, *(params.get("seeds") or []), *tracked] if k and k.strip()})
-    own = {registrable(d) for d in project.domains}
+    # Seeds and mapped keywords only: unmapped rows are this collector's own past output, and seeding from them
+    # fed run be9ad355's junk back into run b3245cad.
     brand = brand_tokens(project.display_name or project.slug, list(project.domains), project.brand_context_terms)
-    words = topic_words(seeds, brand)
+    tracked = [r["keyword"] for r in ctx.read(
+        "select keyword from keywords where project_id = %(project_id)s and mapped_url is not null order by keyword limit 200")]
+    seeds = sorted({k.strip().lower() for k in [*project.keyword_seeds, *(params.get("seeds") or []), *tracked]
+                    if k and k.strip() and not is_branded(k, brand)})
+    own = {registrable(d) for d in project.domains}
+    words = topic_words([*project.keyword_seeds, *(params.get("seeds") or [])] or seeds, brand, project.vertical)
     competitors = sorted({registrable(c) for c in (params.get("competitors") or project.competitors) if c})
     ctx.result.detail.update({"seeds": len(seeds), "topic_words": words, "competitors": competitors})
     if not competitors:
@@ -115,10 +102,14 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
         ctx.result.detail["suggested_competitors"] = suggested
         ctx.gap(f"no competitors configured; suggestions from search results: {', '.join(suggested) or 'none'}", "competitors")
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
+    if not words:
+        ctx.gap("no distinctive topic words in the seeds; discovery would return the whole vertical", "all")
+        return
+    topic = "|".join(re.escape(w) for w in words)
     with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         if seeds:
             body = {"keywords": seeds[:200], "location_code": location, "language_code": language, "limit": int(params.get("ideas_limit", IDEAS_LIMIT)),
-                    "filters": ["keyword_info.search_volume", ">", 0], "order_by": ["relevance,desc"]}
+                    "filters": [["keyword_info.search_volume", ">", 0], "and", ["keyword", "regex", topic]], "order_by": ["relevance,desc"]}
             result = _task(ctx, http, IDEAS_API, body, "ideas")
             for it in (result or {}).get("items") or []:
                 kw = (it.get("keyword") or "").lower()
@@ -126,10 +117,6 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                     ctx.write("raw_keyword_ideas", {"keyword": kw, "source": "idea", "location_code": location, "language_code": language, **_metrics(it)})
         else:
             ctx.gap("no seeds or tracked keywords to expand", "ideas")
-        if not words:
-            ctx.gap("no topic words to filter competitor keywords by", "competitors")
-            return
-        topic = "|".join(re.escape(w) for w in words)
         for comp in competitors:
             body = {"target": comp, "location_code": location, "language_code": language, "limit": int(params.get("competitor_limit", COMPETITOR_LIMIT)),
                     "item_types": ["organic"], "filters": ["keyword_data.keyword", "regex", topic],

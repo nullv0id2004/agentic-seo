@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+from urllib.parse import urljoin
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,9 +24,11 @@ NAME = "keyword"
 
 SYSTEM = """You are the keyword analyst for one web property. You receive what the project offers and to
 whom, and for each keyword the search volume row, the Search Console pages that already receive impressions
-for it, and the list of crawled urls. Assign: relevant (true only if a person searching this could plausibly
-want what this project offers; false for searches about another company or brand, a person, a different
-meaning of a word, or a market the project does not serve), intent (informational, navigational,
+for it, and the list of crawled urls. Assign: relevant (true only if the search itself shows the person is in
+the audience the project serves and wants what it offers; false for generic searches anyone in the vertical
+makes, such as any job, job alerts, government jobs, jobs near a place, work from home jobs or one employer's
+careers page, and false for another company or brand, a person, a different meaning of a word, or a market
+the project does not serve; when unsure, false), intent (informational, navigational,
 transactional, commercial), a short cluster label, and mapped_url (one of the crawled urls, or null if no
 page fits). Do not invent volumes or urls. Do not use an em dash. Say job seekers, never candidates."""
 
@@ -43,6 +46,10 @@ class _Assign(BaseModel):
 class _Assignments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     assignments: list[_Assign] = Field(default_factory=list)
+
+
+def _same_url(a: str, b: str) -> bool:
+    return a.rstrip("/").lower() == b.rstrip("/").lower()
 
 
 def _protected_patterns(inp: AnalystInput) -> list[str]:
@@ -67,7 +74,11 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> KeywordReport:
         return KeywordReport(agent="keyword", keywords=[])
     patterns = _protected_patterns(inp)
     reserved = {k.lower() for k in inp.params.get("reserved_keywords", [])}
-    urls = sorted({p["url"] for p in inp.table("raw_crawl_pages") if p.get("status_code") == 200 and not any(rule_matches(pt, p["url"]) for pt in patterns)})
+    # Only pages that can rank under their own URL: a page whose canonical names another URL (korum.worldhire.com/
+    # canonical to /jobs) cannot hold a keyword. Inspection rows (no status code) are not pages.
+    urls = sorted({p["url"] for p in inp.table("raw_crawl_pages")
+                   if p.get("status_code") == 200 and not any(rule_matches(pt, p["url"]) for pt in patterns)
+                   and (not p.get("canonical") or _same_url(urljoin(p["url"], p["canonical"]), p["url"]))})
     gsc_pages: dict[str, list[tuple[str, int]]] = {}
     for r in inp.table("raw_gsc_performance"):
         if r.get("query") and r.get("page"):
