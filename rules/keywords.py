@@ -56,7 +56,10 @@ GENERIC_WORDS = frozenset({"best", "top", "free", "online", "india", "near", "wi
 VERTICAL_GENERIC: dict[str, frozenset[str]] = {
     "recruitment": frozenset({"job", "jobs", "hiring", "hire", "hired", "career", "careers", "work", "vacancy", "vacancies",
                               "recruitment", "recruiting", "recruiter", "recruiters", "employment", "employer", "employers",
-                              "firm", "firms", "company", "opening", "openings", "apply", "salary", "role", "roles", "portal"}),
+                              "firm", "firms", "company", "opening", "openings", "apply", "salary", "role", "roles", "portal",
+                              # run 4c217c16: "professional resume templates", "talent acquisition", "national talent
+                              # search examination" came through on these two
+                              "talent", "talents", "professional", "professionals"}),
 }
 
 
@@ -81,8 +84,8 @@ def topic_words(keywords: list[str], brand: set[str], vertical: str | None = Non
 VERTICAL_ANCHORS: dict[str, frozenset[str]] = {
     "recruitment": frozenset({"job", "jobs", "search", "hiring", "hire", "recruiter", "recruiters", "recruitment", "recruiting",
                               "headhunter", "headhunters", "headhunting", "career", "careers", "role", "roles", "position",
-                              "positions", "opportunity", "opportunities", "employer", "employers", "employed", "talent",
-                              "interview", "resume", "cv", "platform", "vacancy", "vacancies", "opening", "openings", "offer"}),
+                              "positions", "opportunity", "opportunities", "employer", "employers", "employed",
+                              "vacancy", "vacancies", "opening", "openings"}),
 }
 
 

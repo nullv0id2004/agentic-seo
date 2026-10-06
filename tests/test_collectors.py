@@ -493,7 +493,10 @@ def test_topic_words_are_what_sets_the_project_apart(worker_url, seeded):
     project = _project(worker_url, seeded)
     words = topic_words(project.keyword_seeds, brand_tokens("KORUM", project.domains, project.brand_context_terms), project.vertical)
     assert {"senior", "confidential", "executive", "anonymous", "headhunter"} <= set(words)
-    assert not {"job", "jobs", "hiring", "while", "firm"} & set(words)
+    assert not {"job", "jobs", "hiring", "while", "firm", "talent", "professional"} & set(words)
+    # run 4c217c16: resume templates and exam searches passed on "professional"/"talent" and on resume as a hiring word
+    assert not any(on_topic(k, words, "recruitment") for k in ("professional resume templates", "national talent search examination",
+                                                                "professional networking platform"))
     assert on_topic("executive search firms in india", words, "recruitment") and not on_topic("government jobs odisha", words, "recruitment")
     # run 3fc48787: one ambiguous word is not enough; a second word must place the search in hiring
     assert not any(on_topic(k, words, "recruitment") for k in ("executive meaning in hindi", "chief executive officer of google",
