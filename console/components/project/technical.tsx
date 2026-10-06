@@ -32,9 +32,24 @@ export async function TechnicalTab({ projectId }: TabProps) {
     sitemap: (await q(`with sm as (select run_id from raw_sitemap_urls where project_id = $1 order by collected_at desc limit 1)
       select count(distinct url)::int as urls, count(distinct sitemap_url)::int as sitemaps, max(collected_at) as at
       from raw_sitemap_urls where project_id = $1 and run_id = (select run_id from sm)`))[0] ?? {},
-    inspection: await q(`select distinct on (url) url, indexable, robots_meta as robots_txt, canonical as google_canonical, collected_at
-      from raw_crawl_pages where project_id = $1 and status_code is null and (indexable is not null or robots_meta is not null)
-      order by url, collected_at desc`),
+    inspection: await q(`with ui as (
+        select distinct on (url) url, verdict, coverage_state, robots_txt_state, page_fetch_state, last_crawl_time, google_canonical, user_canonical, sitemaps, collected_at
+        from raw_url_inspection where project_id = $1 order by url, collected_at desc),
+      legacy as (
+        select distinct on (url) url, indexable, robots_meta, canonical, collected_at from raw_crawl_pages
+        where project_id = $1 and status_code is null and indexable is not null order by url, collected_at desc),
+      pages as (
+        select distinct on (url) url, status_code, word_count, robots_meta, x_robots_tag from raw_crawl_pages
+        where project_id = $1 and status_code is not null order by url, collected_at desc)
+      select coalesce(ui.url, l.url) as url, coalesce(ui.verdict = 'PASS', l.indexable) as indexable, ui.coverage_state,
+        coalesce(ui.robots_txt_state, l.robots_meta) as robots_txt, coalesce(ui.google_canonical, l.canonical) as google_canonical,
+        ui.user_canonical, ui.last_crawl_time, jsonb_array_length(coalesce(ui.sitemaps, '[]'::jsonb)) > 0 as google_sitemap,
+        coalesce(ui.collected_at, l.collected_at) as collected_at,
+        (p.status_code = 200 and p.word_count is not null and not (coalesce(p.robots_meta, '') ilike '%noindex%' or coalesce(p.x_robots_tag, '') ilike '%noindex%')) as should_rank,
+        exists (select 1 from critical_rules c where c.project_id = $1 and c.active and c.assertion = 'must_noindex'
+                and regexp_replace(coalesce(ui.url, l.url), '^https?://[^/]+', '') ~ c.url_pattern) as protected
+      from ui full join legacy l on l.url = ui.url left join pages p on p.url = coalesce(ui.url, l.url)
+      order by should_rank desc nulls last, indexable nulls first, url`),
     probe: await q(`with pr as (select id, started_at, status from runs where project_id = $1 and workflow = 'daily_probe' order by started_at desc limit 1)
       select c.url, c.status_code, c.robots_meta, c.x_robots_tag, c.in_sitemap, c.canonical, pr.started_at, pr.status as run_status
       from raw_crawl_pages c join pr on c.run_id = pr.id where c.project_id = $1 order by c.url`),
@@ -49,8 +64,15 @@ export async function TechnicalTab({ projectId }: TabProps) {
       count(*) filter (where status = 'dismissed')::int as dismissed from issues where project_id = $1`))[0] ?? {},
   }));
   const s = d.summary;
-  const indexed = d.inspection.filter((r) => r.indexable === true).length;
-  const notIndexed = d.inspection.filter((r) => r.indexable === false).length;
+  const ranking = d.inspection.filter((r) => r.should_rank === true && !r.protected);
+  const indexed = ranking.filter((r) => r.indexable === true).length;
+  const notIndexed = ranking.filter((r) => r.indexable === false);
+  const reasons = Object.entries(notIndexed.reduce<Record<string, string[]>>((acc, r) => {
+    const k = str(r.coverage_state) || "reason not recorded yet (inspected before the reason was stored)";
+    (acc[k] ??= []).push(str(r.url));
+    return acc;
+  }, {})).sort((x, y) => y[1].length - x[1].length);
+  const stayOut = d.inspection.length - ranking.length;
   const violations = ((d.violations[0]?.v as Violation[] | null) ?? []);
   const probeAt = d.probe[0]?.started_at;
 
@@ -60,8 +82,8 @@ export async function TechnicalTab({ projectId }: TabProps) {
         <StatTile label="Pages in the latest audit" value={fmtInt(s.pages)} foot={s.at ? `crawled ${fmtDate(s.at)}` : "no audit yet"} />
         <StatTile label="Status codes" value={`${fmtInt(s.s2)} ok`} foot={`${fmtInt(s.s3)} redirects · ${fmtInt(s.s4)} 4xx · ${fmtInt(s.s5)} 5xx`} />
         <StatTile label="Indexable HTML pages" value={fmtInt(s.indexable_html)} foot={`${fmtInt(s.noindex)} HTML pages marked noindex`} />
-        <StatTile label="Indexed by Google" value={d.inspection.length ? `${fmtInt(indexed)} of ${fmtInt(d.inspection.length)}` : "–"}
-          foot={d.inspection.length ? `${fmtInt(notIndexed)} not indexed, from URL inspection` : "no URL inspection yet"} />
+        <StatTile label="Pages that should rank, indexed" value={ranking.length ? `${fmtInt(indexed)} of ${fmtInt(ranking.length)}` : "–"}
+          foot={d.inspection.length ? `${fmtInt(stayOut)} other inspected URL(s) are meant to stay out` : "no URL inspection yet"} />
         <StatTile label="Sitemap URLs" value={fmtInt(d.sitemap.urls)} foot={d.sitemap.at ? `${fmtInt(d.sitemap.sitemaps)} sitemap file(s), read ${fmtDay(d.sitemap.at)}` : "not read yet"} />
         <StatTile label="Protected-route violations" value={probeAt ? fmtInt(violations.length) : "–"}
           foot={probeAt ? `daily probe ${fmtDate(probeAt)}` : "no probe yet"} />
@@ -131,20 +153,34 @@ export async function TechnicalTab({ projectId }: TabProps) {
         </details>
       </Section>
 
-      <Section title="Google index status" note="From Search Console URL inspection, latest verdict per URL.">
+      <Section title="Why pages are not indexed" note="Indexable pages from the latest audit that Google has not indexed, grouped by Google's own reason. Each reason needs a different fix; the open issues above carry it.">
         <div className="scroll"><table>
-          <thead><tr><th>URL</th><th>Indexed</th><th>robots.txt</th><th>Google-selected canonical</th><th>Inspected</th></tr></thead>
+          <thead><tr><th>Google&apos;s reason</th><th className="num">Pages</th><th>Examples</th></tr></thead>
+          <tbody>
+            {reasons.map(([reason, urls]) => (
+              <tr key={reason}><td>{reason}</td><td className="num">{fmtInt(urls.length)}</td>
+                <td className="small wrap-anywhere">{urls.slice(0, 4).map(pathOf).join(", ")}{urls.length > 4 ? ` +${urls.length - 4}` : ""}</td></tr>
+            ))}
+            {reasons.length === 0 && <Empty cols={3}>{ranking.length ? "Every page that should rank is indexed." : "No inspection of rankable pages yet. The monthly run inspects every crawled URL."}</Empty>}
+          </tbody>
+        </table></div>
+      </Section>
+
+      <Section title="Google index status" note="URL Inspection, latest verdict per URL. Pages meant to stay out (protected routes, noindex, non-HTML) are listed last.">
+        <div className="scroll"><table>
+          <thead><tr><th>URL</th><th>Indexed</th><th>Google&apos;s reason</th><th>Last crawled by Google</th><th>Google-selected canonical</th><th>Inspected</th></tr></thead>
           <tbody>
             {d.inspection.map((r) => (
               <tr key={str(r.url)}>
-                <td className="wrap-anywhere">{pathOf(r.url)}</td>
+                <td className="wrap-anywhere">{pathOf(r.url)}{r.should_rank && !r.protected ? null : <div className="muted small">{r.protected ? "protected, must stay out" : "meant to stay out"}</div>}</td>
                 <td>{r.indexable == null ? <span className="muted">unknown</span> : <Status value={r.indexable ? "indexed" : "no"} />}</td>
-                <td className="small">{str(r.robots_txt).toLowerCase().replaceAll("_", " ")}</td>
-                <td className="small wrap-anywhere">{r.google_canonical ? pathOf(r.google_canonical) : ""}</td>
+                <td className="small">{str(r.coverage_state) || <span className="muted">not recorded</span>}{str(r.robots_txt) === "DISALLOWED" ? <div className="muted">blocked by robots.txt</div> : null}</td>
+                <td className="small nowrap">{r.last_crawl_time ? fmtDay(r.last_crawl_time) : <span className="muted">never</span>}</td>
+                <td className="small wrap-anywhere">{r.google_canonical ? pathOf(r.google_canonical) : ""}{r.user_canonical && r.google_canonical && str(r.user_canonical).replace(/\/$/, "") !== str(r.google_canonical).replace(/\/$/, "") ? <div className="muted">page declares {pathOf(r.user_canonical)}</div> : null}</td>
                 <td className="muted nowrap">{fmtDay(r.collected_at)}</td>
               </tr>
             ))}
-            {d.inspection.length === 0 && <Empty cols={5}>No URL inspection results yet.</Empty>}
+            {d.inspection.length === 0 && <Empty cols={6}>No URL inspection results yet.</Empty>}
           </tbody>
         </table></div>
       </Section>

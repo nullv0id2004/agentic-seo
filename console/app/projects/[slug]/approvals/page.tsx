@@ -5,6 +5,11 @@ import { decideApproval } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+function needsRecipient(a: Record<string, unknown>): boolean {
+  const p = (a.payload ?? {}) as Record<string, unknown>;
+  return a.action_type === "send_pitch" && !p.to && !p.contact_email;
+}
+
 export default async function ApprovalsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const project = await projectBySlug(slug);
@@ -33,13 +38,25 @@ export default async function ApprovalsPage({ params }: { params: Promise<{ slug
             <p className="muted">Reversal: <code>{JSON.stringify(a.reversal_payload)}</code></p>
           </details>
           {canDecide && (
-            <form action={decideApproval} className="row">
-              <input type="hidden" name="slug" value={slug} />
-              <input type="hidden" name="approval_id" value={str(a.id)} />
-              <button className="primary" name="decision" value="approve" type="submit">Approve</button>
-              <button className="danger" name="decision" value="reject" type="submit">Reject</button>
-            </form>
+            <div className="row">
+              <form action={decideApproval} className="row">
+                <input type="hidden" name="slug" value={slug} />
+                <input type="hidden" name="approval_id" value={str(a.id)} />
+                {needsRecipient(a) && (
+                  <label className="small">Send to{" "}
+                    <input type="email" name="recipient" required placeholder="editor@outlet.com" style={{ font: "inherit", padding: "5px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "transparent", color: "inherit", minWidth: 220 }} />
+                  </label>
+                )}
+                <button className="primary" name="decision" value="approve" type="submit">Approve</button>
+              </form>
+              <form action={decideApproval}>
+                <input type="hidden" name="slug" value={slug} />
+                <input type="hidden" name="approval_id" value={str(a.id)} />
+                <button className="danger" name="decision" value="reject" type="submit">Reject</button>
+              </form>
+            </div>
           )}
+          {needsRecipient(a) && <p className="muted small">This pitch has no address yet. Find the right editor or contact for the outlet and enter it to approve. Nothing is sent without one.</p>}
         </div>
       ))}
       {data.pending.length === 0 && <p className="muted">Nothing pending.</p>}

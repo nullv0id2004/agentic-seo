@@ -331,7 +331,7 @@ def test_llm_responses_asks_deterministic_prompts_and_marks_citations(worker_url
 
     project = _project(worker_url, seeded)
     run_id = uuid.uuid4()
-    res = collect("llm_responses", project, run_id, {"_transport": httpx.MockTransport(handle), "keywords": ["job search platform"]}, db_url=worker_url)
+    res = collect("llm_responses", project, run_id, {"_transport": httpx.MockTransport(handle), "keywords": ["job search platform"], "platforms": ["chat_gpt"]}, db_url=worker_url)
     assert not res.partial and res.rows_written == 3
     assert all(b["web_search"] is True and b["force_web_search"] is True and b["model_name"] == "gpt-4.1" and b["web_search_country_iso_code"] == "IN" for b in asked)
     assert asked[0]["user_prompt"] == "What is KORUM (WorldHire) and what does it offer?"
@@ -360,3 +360,92 @@ def test_paid_api_cost_reaches_the_agent_log_and_the_run_budget(worker_url, seed
     with project_scope(project.id, url=worker_url) as s:
         row = s.fetchone("select cost_usd from agent_logs where project_id = %(project_id)s and run_id = %(run_id)s and agent = 'llm_mentions'", {"run_id": run_id})
     assert float(row["cost_usd"]) == 0.006
+
+
+def test_llm_responses_ask_chatgpt_and_perplexity_with_each_platforms_fields(worker_url, seeded):
+    """Perplexity's Sonar models always search and the API takes no web_search flag for them."""
+    import httpx
+
+    seen = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path.split("/")[3], json.loads(request.content)[0]))
+        return httpx.Response(200, json=_dfs_task({"model_name": "x", "items": [{"type": "message", "sections": [{"type": "text", "text": "ok", "annotations": [
+            {"title": "naukri.com", "url": "https://www.naukri.com/"}]}]}]}))
+
+    project = _project(worker_url, seeded)
+    res = collect("llm_responses", project, uuid.uuid4(), {"_transport": httpx.MockTransport(handle), "keywords": ["job search platform"]}, db_url=worker_url)
+    assert not res.partial and res.rows_written == 6, "3 prompts on each of the two default platforms"
+    by = {}
+    for platform, body in seen:
+        by.setdefault(platform, []).append(body)
+    assert set(by) == {"chat_gpt", "perplexity"}
+    assert all(b["model_name"] == "sonar" and "web_search" not in b and "force_web_search" not in b and b["web_search_country_iso_code"] == "IN" for b in by["perplexity"])
+    assert all(b["web_search"] is True and b["force_web_search"] is True for b in by["chat_gpt"])
+
+
+def test_url_inspection_keeps_googles_coverage_state(worker_url, seeded, monkeypatch):
+    """Production 2026-10-06: 2 of 50 inspected URLs indexed, and nothing said why."""
+    import httpx
+
+    from collectors import gsc
+
+    monkeypatch.setattr(gsc, "access_token", lambda ref, scope: "token")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        url = json.loads(request.content)["inspectionUrl"]
+        if url.endswith("/jobs"):
+            res = {"verdict": "PASS", "coverageState": "Submitted and indexed", "indexingState": "INDEXING_ALLOWED", "robotsTxtState": "ALLOWED",
+                   "pageFetchState": "SUCCESSFUL", "lastCrawlTime": "2026-10-01T10:00:00Z", "googleCanonical": url, "userCanonical": url,
+                   "sitemap": ["https://korum.worldhire.com/sitemap.xml"]}
+        else:
+            res = {"verdict": "NEUTRAL", "coverageState": "Discovered - currently not indexed", "indexingState": "INDEXING_ALLOWED", "robotsTxtState": "ALLOWED"}
+        return httpx.Response(200, json={"inspectionResult": {"indexStatusResult": res}})
+
+    project = _project(worker_url, seeded)
+    run_id = uuid.uuid4()
+    res = collect("gsc_inspection", project, run_id, {"_transport": httpx.MockTransport(handle),
+                  "urls": ["https://korum.worldhire.com/jobs", "https://korum.worldhire.com/blog/hiring"]}, db_url=worker_url)
+    assert not res.partial and res.rows_written == 4, "a raw_crawl_pages row and a raw_url_inspection row per url"
+    with project_scope(project.id, url=worker_url) as s:
+        rows = s.fetchall("select url, verdict, coverage_state, last_crawl_time, sitemaps from raw_url_inspection where project_id = %(project_id)s and run_id = %(run_id)s order by url", {"run_id": run_id})
+    assert rows[0]["coverage_state"] == "Discovered - currently not indexed" and rows[0]["last_crawl_time"] is None
+    assert rows[1]["verdict"] == "PASS" and rows[1]["sitemaps"] == ["https://korum.worldhire.com/sitemap.xml"]
+
+
+def test_keyword_discovery_writes_ideas_and_topic_filtered_competitor_keywords(worker_url, seeded):
+    import httpx
+
+    from collectors.keyword_discovery import competitors_from_serp, topic_words
+
+    assert topic_words(["job search platform", "hiring platform india", "korum jobs"], {"korum", "worldhire"}) == ["job", "hiring", "jobs"]
+    serp = [{"query": "q1", "collected_at": "2026-10-01", "results": [{"rank": 1, "domain": "www.naukri.com"}, {"rank": 2, "domain": "youtube.com"}, {"rank": 3, "domain": "korum.worldhire.com"}]},
+            {"query": "q2", "collected_at": "2026-10-01", "results": [{"rank": 4, "domain": "naukri.com"}, {"rank": 5, "domain": "indeed.com"}, {"rank": 15, "domain": "apna.co"}]}]
+    assert competitors_from_serp(serp, {"korum.worldhire.com"}) == ["naukri.com", "indeed.com"], "generic sites, our own domain and ranks past 10 are left out"
+
+    bodies = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)[0]
+        bodies.append((request.url.path, body))
+        if request.url.path.endswith("/keyword_ideas/live"):
+            return httpx.Response(200, json=_dfs_task({"items": [
+                {"keyword": "Job Portal India", "keyword_info": {"search_volume": 9900, "cpc": 0.4, "competition": 0.3},
+                 "keyword_properties": {"keyword_difficulty": 42}, "search_intent_info": {"main_intent": "commercial"}}]}))
+        return httpx.Response(200, json=_dfs_task({"items": [
+            {"keyword_data": {"keyword": "naukri job search", "keyword_info": {"search_volume": 5000}, "keyword_properties": {"keyword_difficulty": 60}},
+             "ranked_serp_element": {"serp_item": {"rank_absolute": 2, "url": "https://www.naukri.com/jobs"}}}]}))
+
+    project = _project(worker_url, seeded)
+    run_id = uuid.uuid4()
+    res = collect("keyword_discovery", project, run_id, {"_transport": httpx.MockTransport(handle), "competitors": ["naukri.com"]}, db_url=worker_url)
+    assert not res.partial and res.rows_written == 2 and round(res.cost_usd, 6) == 0.004
+    ranked = [b for p, b in bodies if p.endswith("/ranked_keywords/live")][0]
+    assert ranked["target"] == "naukri.com" and ranked["filters"][:2] == ["keyword_data.keyword", "regex"] and "job" in ranked["filters"][2]
+    with project_scope(project.id, url=worker_url) as s:
+        rows = s.fetchall("select keyword, source, competitor, competitor_rank, search_volume, keyword_difficulty, intent from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s order by source", {"run_id": run_id})
+        from orchestrator.graphs.quarterly_keyword import discovered_keywords
+        found = discovered_keywords(s, run_id)
+    assert rows[0]["source"] == "competitor" and rows[0]["competitor_rank"] == 2 and rows[0]["keyword_difficulty"] == 60
+    assert rows[1] == {"keyword": "job portal india", "source": "idea", "competitor": None, "competitor_rank": None, "search_volume": 9900, "keyword_difficulty": 42, "intent": "commercial"}
+    assert found == ["job portal india"], "a competitor's brand search is not an opportunity"

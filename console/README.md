@@ -20,10 +20,10 @@ One page per project, in tabs, with a 7 / 28 / 90 day range filter that scopes e
 | Changes | Every decided approval: where it acts, what changed from what, PR link, failure reason, and whether a later audit confirmed the fix on the site | approvals, issues, runs |
 | Search | Clicks, impressions, CTR, position per day; pages and queries vs the previous range | raw_gsc_performance |
 | Traffic | Sessions and engagement per day, channels, landing pages | raw_ga4_daily |
-| Keywords | Tracked keywords with volume, difficulty, CPC, AI volume, SERP rank, Search Console stats, mapped page | keywords, raw_keyword_metrics, raw_ai_keyword_metrics, raw_serp |
+| Keywords | Tracked keywords with volume, difficulty, CPC, AI volume, SERP rank, Search Console stats, mapped page; discovered opportunities with the competitors ranking for them | keywords, raw_keyword_metrics, raw_ai_keyword_metrics, raw_serp, raw_keyword_ideas |
 | Rankings | Latest rank per query, previous rank, history, AI Overview presence and whether it cites the site | raw_serp |
-| Technical | Audit summary, on-page checks, open issues, protected-route probe, Google index status, vitals, schema, every page | raw_crawl_pages, raw_sitemap_urls, raw_vitals, issues |
-| AI visibility | Weekly prompts and whether answers cite the site, answers and sources, domain mentions, brand mentions about this site | raw_llm_* |
+| Technical | Audit summary, on-page checks, open issues, protected-route probe, why pages are not indexed (Google's reason), index status, vitals, schema, every page | raw_crawl_pages, raw_url_inspection, raw_sitemap_urls, raw_vitals, issues |
+| AI visibility | Weekly prompts on ChatGPT and Perplexity and whether answers cite the site, the sites cited instead, answers and sources, domain mentions, brand mentions about this site | raw_llm_*, raw_serp |
 | Content & outreach | On-page suggestions, briefs, pitches, backlinks | onpage_suggestions, content_briefs, pitches, mentions |
 | Operations | Spend vs cap, spend per day (data APIs vs AI models), cost by agent, runs with per-agent detail, gaps, gate findings, audit log | runs, agent_logs, collection_gaps, gate_results, audit_log |
 

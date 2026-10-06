@@ -1,4 +1,5 @@
-"""quarterly_keyword: keyword_metrics -> keyword_analyst -> gate -> approvals (keyword_mapping)."""
+"""quarterly_keyword: keyword_discovery -> keyword_metrics -> keyword_analyst -> gate -> approvals (keyword_mapping).
+Keywords the analyst cannot map to an existing page are kept as unmapped opportunities for content."""
 from __future__ import annotations
 
 from uuid import UUID
@@ -16,6 +17,20 @@ WORKFLOW = "quarterly_keyword"
 
 
 GSC_QUERY_LIMIT = 200
+DISCOVERED_LIMIT = 60      # discovered keywords added to the priced universe per run
+OPPORTUNITY_LIMIT = 40     # unmapped keywords kept per run as content opportunities
+
+
+def discovered_keywords(scope: ProjectScope, run_id: UUID, limit: int = DISCOVERED_LIMIT) -> list[str]:
+    """The highest-volume keywords keyword_discovery found in this run, minus any that name a competitor
+    (their brand searches, such as a login page, are not opportunities). Deterministic."""
+    rows = scope.fetchall(
+        """select keyword, max(search_volume) as volume, array_remove(array_agg(distinct competitor), null) as competitors
+             from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s
+            group by keyword order by max(search_volume) desc nulls last, keyword""", {"run_id": run_id})
+    brands = {label for r in rows for c in (r["competitors"] or []) for label in c.split(".")[:-1] if len(label) > 2 and label != "www"}
+    out = [r["keyword"] for r in rows if not any(b in r["keyword"].split() or b in r["keyword"].replace(" ", "") for b in brands)]
+    return out[:limit]
 
 
 def keyword_universe(scope: ProjectScope, project: Project, requested: list[str]) -> list[str]:
@@ -38,9 +53,12 @@ def build(rt: Runtime) -> StateGraph:
     def collect(state: RunState) -> RunState:
         project = rt.load_project(UUID(state["project_id"]))
         run_id = UUID(state["run_id"])
+        out = dict(state.get("collectors", {}))
+        res = rt.run_collector(project, run_id, "keyword_discovery", {})
+        out["keyword_discovery"] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
         with rt.scope(project.id) as s:
             universe = keyword_universe(s, project, state.get("params", {}).get("keywords", []))
-        out = dict(state.get("collectors", {}))
+            universe += [k for k in discovered_keywords(s, run_id) if k not in universe]
         for name in ("keyword_metrics", "ai_keyword_metrics"):
             res = rt.run_collector(project, run_id, name, {"keywords": universe})
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
@@ -76,6 +94,17 @@ def build(rt: Runtime) -> StateGraph:
                         f"Map {len(changes)} keyword(s) to pages (proposed by the keyword analyst).", "analyst:keyword",
                         {"kind": "restore_previous_mapping", "previous": [{"keyword": p["keyword"], "mapped_url": current.get(p["keyword"])} for p in changes]})
                     queued.append(str(aid))
+        # Keywords no existing page fits are content opportunities: tracked unmapped, never mapped here.
+        gaps = [k for k in art.get("keywords", []) if not k.get("mapped_url") and not k.get("blocked_for_index")]
+        gaps.sort(key=lambda k: -(k.get("volume") or k.get("volume_high") or 0))
+        if gaps:
+            with rt.scope(project.id) as s:
+                for k in gaps[:OPPORTUNITY_LIMIT]:
+                    s.execute("""insert into keywords (project_id, keyword, intent, cluster, updated_at)
+                                 values (%(project_id)s, %(kw)s, %(intent)s, %(cluster)s, now())
+                                 on conflict (project_id, keyword) do update set intent = coalesce(keywords.intent, excluded.intent),
+                                   cluster = coalesce(keywords.cluster, excluded.cluster)""",
+                              {"kw": k["keyword"], "intent": k.get("intent"), "cluster": k.get("cluster")})
         return {"approvals": queued, "status": "paused_for_approval" if queued else "done"}
 
     g = StateGraph(RunState)

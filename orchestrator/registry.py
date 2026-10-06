@@ -40,7 +40,7 @@ def register(spec: AgentSpec) -> AgentSpec:
 
 for _c, _writes, _reads in [
     ("gsc_performance", ("raw_gsc_performance",), ()),
-    ("gsc_inspection", ("raw_crawl_pages", "audit_log"), ("raw_crawl_pages", "audit_log")),
+    ("gsc_inspection", ("raw_crawl_pages", "raw_url_inspection", "audit_log"), ("raw_crawl_pages", "audit_log")),
     ("ga4", ("raw_ga4_daily",), ()),
     ("site_crawl", ("raw_crawl_pages", "raw_sitemap_urls"), ()),
     ("header_probe", ("raw_crawl_pages", "audit_log"), ("critical_rules",)),
@@ -53,10 +53,11 @@ for _c, _writes, _reads in [
     ("ai_keyword_metrics", ("raw_ai_keyword_metrics",), ("keywords",)),
     ("llm_mentions", ("raw_llm_mention_metrics", "raw_llm_mentions"), ()),
     ("llm_responses", ("raw_llm_responses",), ("keywords",)),
+    ("keyword_discovery", ("raw_keyword_ideas",), ("keywords", "raw_serp")),
 ]:
     register(AgentSpec(_c, "collector", reads=_reads, writes=_writes + ("collection_gaps",), network=True))
 
-register(AgentSpec("technical", "analyst", reads=("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules"), llm=True))
+register(AgentSpec("technical", "analyst", reads=("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules", "raw_url_inspection"), llm=True))
 register(AgentSpec("ecommerce", "analyst", reads=("raw_crawl_pages", "critical_rules"), llm=True))
 register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_ai_keyword_metrics", "raw_gsc_performance", "keywords", "critical_rules", "raw_crawl_pages"), llm=True))
 register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "brand_rules", "critical_rules"), llm=True))

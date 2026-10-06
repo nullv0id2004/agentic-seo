@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from contracts.project import Project
-from db.connection import project_scope
+from db.connection import jsonb, project_scope
 from executors.base import NotApproved
 from executors.cms import CMSExecutor
 from executors.dispatch import execute_approved, execute_one, reverse_one
@@ -232,3 +232,20 @@ def test_paused_run_completes_once_its_approvals_are_settled(worker_url, seeded,
     execute_approved(rt, korum.id)
     with project_scope(korum.id, url=worker_url) as s:
         assert s.fetchone("select status from runs where project_id = %(project_id)s and id = %(id)s", {"id": rejected_run})["status"] == "done", "a rejection settles the run too"
+
+
+def test_pitch_recipient_comes_from_the_approver(worker_url, seeded, env):
+    """Production 2026-10-05: approved pitches had no address and could never send. The approver now
+    supplies one in the console (approvals.approver_input)."""
+    rt = Runtime(db_url=worker_url, model="fake")
+    korum = _project(worker_url, seeded, "korum")
+    with project_scope(korum.id, url=worker_url) as s:
+        run_id = s.insert("runs", {"workflow": "monthly_full", "trigger": "test", "status": "done", "idempotency_key": uuid.uuid4().hex})
+        pitch_id = s.insert("pitches", {"run_id": run_id, "outlet_url": "https://outlet.example", "subject": "Data", "body": "Hello"})
+    aid = _approve(worker_url, korum, "send_pitch", {"pitch_id": str(pitch_id), "subject": "Data", "body": "Hello"}, {"kind": "send_retraction"})
+    with project_scope(korum.id, url=worker_url) as s:
+        s.execute("update approvals set approver_input = %(i)s where project_id = %(project_id)s and id = %(id)s",
+                  {"i": jsonb({"to": "editor@outlet.example"}), "id": aid})
+    res = execute_one(rt, korum.id, aid, {"send_pitch": EmailExecutor(smtp_factory=FakeSMTP)})
+    assert res["detail"] == {"to": "editor@outlet.example"}
+    assert _status(worker_url, korum, aid)["status"] == "executed"

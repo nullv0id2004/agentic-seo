@@ -261,3 +261,28 @@ def test_trend_detects_ai_citation_changes_and_report_counts_ai_visibility(worke
     assert by["llm_prompts_asked"].value == 2 and by["llm_prompts_citing_site"].value == 1, "only the latest run's prompts count"
     assert "llm_mentions_brand" not in by, "a brand keyword aggregate counts other brands of the same name"
     assert by["llm_brand_answers_sampled"].value == 2 and by["llm_brand_answers_about_project"].value == 1 and by["llm_brand_answers_about_project"].evidence_ref == k2
+
+
+def test_index_issues_name_googles_reason_and_skip_pages_meant_to_stay_out(worker_url, seeded):
+    from analysts.technical import INDEX_ISSUE_TYPES, detect
+
+    project = _project(worker_url, seeded, "korum")
+    base = "https://korum.worldhire.com"
+    page = lambda path, **kw: {"id": uuid.uuid4(), "url": base + path, "status_code": 200, "word_count": 900, "title": path, "h1": ["h"],  # noqa: E731
+                               "meta_description": "d", "canonical": base + path, **kw}
+    pages = [page("/a"), page("/b"), page("/c"), page("/d"), page("/login", x_robots_tag="noindex")]
+    insp = lambda path, **kw: {"id": uuid.uuid4(), "url": base + path, "collected_at": "2026-10-06T00:00:00+00:00", **kw}  # noqa: E731
+    rows = {"critical_rules": [], "raw_vitals": [], "raw_sitemap_urls": [], "raw_crawl_pages": pages, "raw_url_inspection": [
+        insp("/a", verdict="NEUTRAL", coverage_state="Discovered - currently not indexed"),
+        insp("/b", verdict="NEUTRAL", coverage_state="Crawled - currently not indexed", last_crawl_time="2026-09-30T08:00:00Z", sitemaps=["s"]),
+        insp("/c", verdict="PASS", coverage_state="Submitted and indexed", google_canonical=base + "/a", user_canonical=base + "/c"),
+        insp("/d", verdict="FAIL", coverage_state="Excluded by 'noindex' tag", robots_txt_state="DISALLOWED"),
+        insp("/login", verdict="NEUTRAL", coverage_state="Excluded by 'noindex' tag"),
+    ]}
+    found = {(d.url, d.issue_type, d.severity) for d in detect(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows)) if d.issue_type in INDEX_ISSUE_TYPES}
+    assert found == {
+        (base + "/a", "index_discovered_not_crawled", "medium"),
+        (base + "/b", "index_crawled_not_indexed", "medium"),
+        (base + "/c", "index_canonical_mismatch", "high"),
+        (base + "/d", "index_blocked_by_robots", "high"),
+    }, "the noindex login page is meant to stay out and gets no index issue"

@@ -5,6 +5,7 @@ import hashlib
 from typing import Any
 from uuid import UUID
 
+from analysts.technical import INDEX_ISSUE_TYPES
 from db.connection import ProjectScope, jsonb
 from orchestrator.runtime import Runtime
 
@@ -56,9 +57,7 @@ def resolve_unseen_issues(scope: ProjectScope, run_id: UUID, artifacts: list[dic
     raw_crawl_pages rows of this run are the evidence that the page was looked at."""
     seen = [issue_fingerprint(i) for a in artifacts for i in a.get("issues", [])]
     crawled = [r["url"] for r in scope.fetchall(
-        "select url from raw_crawl_pages where project_id = %(project_id)s and run_id = %(run_id)s", {"run_id": run_id})]
-    if not crawled:
-        return 0
+        "select url from raw_crawl_pages where project_id = %(project_id)s and run_id = %(run_id)s and status_code is not null", {"run_id": run_id})]
     cur = scope.execute(
         """update issues set status = 'resolved', resolved_at = now()
             where project_id = %(project_id)s and status = 'open' and issue_type = any(%(types)s)
@@ -66,6 +65,17 @@ def resolve_unseen_issues(scope: ProjectScope, run_id: UUID, artifacts: list[dic
         {"types": sorted(CRAWL_ISSUE_TYPES), "crawled": crawled, "seen": seen},
     )
     n = cur.rowcount
+    # Index issues close only on a fresh URL Inspection verdict: a crawl alone says nothing about Google.
+    inspected = [r["url"] for r in scope.fetchall(
+        "select url from raw_url_inspection where project_id = %(project_id)s and run_id = %(run_id)s", {"run_id": run_id})]
+    if inspected:
+        cur = scope.execute(
+            """update issues set status = 'resolved', resolved_at = now()
+                where project_id = %(project_id)s and status = 'open' and issue_type = any(%(types)s)
+                  and url = any(%(inspected)s) and not (fingerprint = any(%(seen)s))""",
+            {"types": sorted(INDEX_ISSUE_TYPES), "inspected": inspected, "seen": seen},
+        )
+        n += cur.rowcount
     if n:
         scope.audit("orchestrator", "issues_resolved", {"count": n}, run_id)
     return n

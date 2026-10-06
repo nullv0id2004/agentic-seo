@@ -12,6 +12,7 @@ from collectors import (
     ga4,
     gsc,
     header_probe,
+    keyword_discovery,
     keyword_metrics,
     llm_mentions,
     llm_responses,
@@ -37,6 +38,7 @@ COLLECTORS: dict[str, CollectFn] = {
     "ai_keyword_metrics": ai_keyword_metrics.collect,
     "llm_mentions": llm_mentions.collect,
     "llm_responses": llm_responses.collect,
+    "keyword_discovery": keyword_discovery.collect,
 }
 
 

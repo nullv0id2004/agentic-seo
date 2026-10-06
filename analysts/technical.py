@@ -1,7 +1,7 @@
 """technical_analyst. Severity is computed in code before the model runs; the model writes only the
 explanation and the claude_code_prompt for each issue it is handed.
 
-Reads: raw_crawl_pages, raw_vitals, raw_sitemap_urls, critical_rules, projects.allowed_schema_types.
+Reads: raw_crawl_pages, raw_vitals, raw_sitemap_urls, critical_rules, raw_url_inspection, projects.allowed_schema_types.
 Emits: TechnicalReport (issues).
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from contracts.artifacts import IssueOut, TechnicalReport
 from rules.indexability import evaluate_critical_rules, rule_matches
 
 NAME = "technical"
-READS = ("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules")
+READS = ("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules", "raw_url_inspection")
 
 LCP_MS = 2500
 INP_MS = 200
@@ -162,7 +162,74 @@ def detect(inp: AnalystInput) -> list[Detected]:
             out.append(Detected("thin_content", "low", redact(p["url"]), f"{p['word_count']} words", p["id"]))
         if not p.get("canonical"):
             out.append(Detected("missing_canonical", "low", redact(p["url"]), "no canonical link", p["id"]))
+    out.extend(index_issues(inp.table("raw_url_inspection"), by_url, redact))
     return [d for d in out if d.evidence_ref is not None]
+
+
+# Google's coverage state decides the fix. Matched on lower-case substrings of coverageState, first match
+# wins. High: a code change on the site fixes it, so a fix PR is worth proposing. Medium: crawl priority
+# and content quality, which no single code change fixes.
+INDEX_STATES: tuple[tuple[str, str, str], ...] = (
+    ("blocked by robots", "index_blocked_by_robots", "high"),
+    ("noindex", "index_noindex_seen_by_google", "high"),
+    ("duplicate", "index_duplicate_canonical", "high"),
+    ("alternate page", "index_duplicate_canonical", "high"),
+    ("unknown to google", "index_unknown_to_google", "medium"),
+    ("discovered", "index_discovered_not_crawled", "medium"),
+    ("crawled", "index_crawled_not_indexed", "medium"),
+    ("soft 404", "index_fetch_problem", "medium"),
+    ("not found", "index_fetch_problem", "medium"),
+    ("redirect", "index_fetch_problem", "medium"),
+    ("server error", "index_fetch_problem", "medium"),
+)
+# What each index state means, handed to the model with the issue so its fix starts from the right cause.
+INDEX_HINTS: dict[str, str] = {
+    "index_blocked_by_robots": "robots.txt disallows the URL, so Google cannot crawl it. Allow it in robots.txt if it should rank.",
+    "index_noindex_seen_by_google": "Google saw a noindex directive (meta or X-Robots-Tag) at its last crawl, though our crawl did not. Find where noindex is set conditionally (environment, user agent, middleware) and remove it for public pages.",
+    "index_duplicate_canonical": "Google treats the page as a duplicate of another URL. Make the content distinct or point the canonical at the preferred URL deliberately.",
+    "index_canonical_mismatch": "Google picked a different canonical than the page declares. Align the canonical tag, internal links and sitemap on one URL.",
+    "index_unknown_to_google": "Google has never seen the URL. List it in the sitemap, link to it from indexed pages, and request indexing in Search Console.",
+    "index_discovered_not_crawled": "Google knows the URL but has not crawled it, usually low crawl priority. Add internal links from strong pages and keep it in the sitemap.",
+    "index_crawled_not_indexed": "Google crawled the page and chose not to index it, usually thin or duplicative content. Add substantial unique content and internal links.",
+    "index_fetch_problem": "Google could not fetch a normal 200 page (soft 404, not found, redirect or server error). Make the URL return 200 with real content or remove it from the sitemap.",
+    "index_not_indexed": "Google reports the page as not indexed. Check the coverage state in Search Console.",
+}
+INDEX_ISSUE_TYPES = frozenset({t for _, t, _ in INDEX_STATES} | {"index_canonical_mismatch", "index_not_indexed"})
+
+
+def _norm(u: str | None) -> str:
+    return (u or "").rstrip("/").lower()
+
+
+def index_issues(inspections: list[dict[str, Any]], by_url: dict[str, dict[str, Any]], redact) -> list[Detected]:
+    """One issue per crawled, indexable HTML page that Google has not indexed, named after Google's reason.
+    Pages that are meant to stay out (noindex, protected, non-HTML) are skipped: their crawl row says so."""
+    latest: dict[str, dict[str, Any]] = {}
+    for r in inspections:
+        if r["url"] not in latest or str(r.get("collected_at")) >= str(latest[r["url"]].get("collected_at")):
+            latest[r["url"]] = r
+    out: list[Detected] = []
+    for url, r in sorted(latest.items()):
+        page = by_url.get(url)
+        if not page or not _indexable_html(page) or redact(url) is None:
+            continue
+        state = r.get("coverage_state") or r.get("verdict") or "unknown"
+        crawled = r.get("last_crawl_time") or "never"
+        in_sitemap = "listed" if r.get("sitemaps") else "not listed"
+        evidence = f"Google: {state}; last crawled {crawled}; {in_sitemap} in a sitemap Google read"
+        if r.get("verdict") == "PASS":
+            g, u = _norm(r.get("google_canonical")), _norm(r.get("user_canonical"))
+            if g and u and g != u:
+                out.append(Detected("index_canonical_mismatch", "high", url,
+                                    f"Google chose {r['google_canonical']} as canonical instead of {r['user_canonical']}", r["id"]))
+            continue
+        if r.get("robots_txt_state") == "DISALLOWED":
+            out.append(Detected("index_blocked_by_robots", "high", url, evidence, r["id"]))
+            continue
+        low = state.lower()
+        match = next(((t, sev) for needle, t, sev in INDEX_STATES if needle in low), ("index_not_indexed", "medium"))
+        out.append(Detected(match[0], match[1], url, evidence, r["id"]))
+    return out
 
 
 def _indexable_html(p: dict[str, Any]) -> bool:
@@ -182,7 +249,8 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> TechnicalReport:
     detected = detect(inp)
     if not detected:
         return TechnicalReport(agent="technical", issues=[])
-    listing = [{"index": i, "issue_type": d.issue_type, "severity": d.severity, "url": d.url, "evidence": d.evidence}
+    listing = [{"index": i, "issue_type": d.issue_type, "severity": d.severity, "url": d.url, "evidence": d.evidence,
+                **({"meaning": INDEX_HINTS[d.issue_type]} if d.issue_type in INDEX_HINTS else {})}
                for i, d in enumerate(detected)]
     user = f"Project: {inp.project.display_name} ({inp.project.vertical}). Issues:\n{json.dumps(listing, indent=1)}"
     exp = ctx.complete(agent=NAME, system=SYSTEM, user=user, schema=_Explanations, max_tokens=8192)
@@ -192,7 +260,7 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> TechnicalReport:
         e = by_index.get(i)
         issues.append(IssueOut(
             evidence_ref=d.evidence_ref, issue_type=d.issue_type, severity=d.severity, url=d.url, evidence=d.evidence,
-            recommended_fix=(e.recommended_fix if e else f"Resolve {d.issue_type}: {d.evidence}"),
+            recommended_fix=(e.recommended_fix if e else INDEX_HINTS.get(d.issue_type) or f"Resolve {d.issue_type}: {d.evidence}"),
             claude_code_prompt=(e.claude_code_prompt if e else None),
         ))
     return TechnicalReport(agent="technical", issues=issues)

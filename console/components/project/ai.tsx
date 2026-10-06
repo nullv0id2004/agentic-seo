@@ -2,6 +2,7 @@ import { LineChart } from "@/components/charts";
 import { Empty, Section, StatTile } from "@/components/ui";
 import { withProject, type Row } from "@/lib/db";
 import { fmtDay, fmtInt, fmtUsd, str, truncate } from "@/lib/format";
+import { projectDomains } from "@/lib/sql";
 import type { TabProps } from "./overview";
 
 type Citation = { url?: string; title?: string };
@@ -30,7 +31,7 @@ function MentionTable({ rows, empty }: { rows: Row[]; empty: string }) {
   );
 }
 
-export async function AiTab({ projectId, range }: TabProps) {
+export async function AiTab({ projectId, range, project }: TabProps) {
   const d = await withProject(projectId, async (q) => ({
     history: await q(`select run_id, min(collected_at)::date::text as day, count(*)::int as asked,
         count(*) filter (where cites_project)::int as citing, coalesce(sum(cost_usd), 0) as cost
@@ -52,6 +53,18 @@ export async function AiTab({ projectId, range }: TabProps) {
       from raw_llm_mentions where project_id = $1
         and run_id = (select run_id from raw_llm_mentions where project_id = $1 order by collected_at desc limit 1)
       order by about_project desc nulls last, cites_project desc, ai_search_volume desc nulls last limit 60`),
+    sources: await q(`with lr as (select run_id from raw_llm_responses where project_id = $1 order by collected_at desc limit 1),
+      resp as (select r.platform, r.prompt, c->>'url' as url from raw_llm_responses r, jsonb_array_elements(coalesce(r.citations, '[]'::jsonb)) c
+               where r.project_id = $1 and r.run_id = (select run_id from lr)),
+      serp as (select distinct on (lower(query)) query, ai_overview_citations from raw_serp where project_id = $1 order by lower(query), collected_at desc),
+      aio as (select 'google_ai_overview' as platform, s.query as prompt, coalesce(c->>'url', 'https://' || (c->>'domain')) as url
+              from serp s, jsonb_array_elements(coalesce(s.ai_overview_citations, '[]'::jsonb)) c),
+      cited as (select platform, prompt, url, regexp_replace(lower(split_part(split_part(url, '//', 2), '/', 1)), '^www\\.', '') as host
+                from (select * from resp union all select * from aio) x)
+      select host, count(distinct prompt)::int as prompts, count(*)::int as citations, array_agg(distinct platform) as platforms,
+        (array_agg(url order by url))[1] as example
+      from cited where host <> '' and not (host = any($2::text[]) or exists (select 1 from unnest($2::text[]) d where host like '%.' || d))
+      group by host order by prompts desc, citations desc, host limit 25`, [projectDomains(project)]),
     aiKeywords: await q(`select distinct on (lower(keyword)) keyword, ai_search_volume, monthly, collected_at
       from raw_ai_keyword_metrics where project_id = $1 order by lower(keyword), collected_at desc`),
   }));
@@ -112,6 +125,22 @@ export async function AiTab({ projectId, range }: TabProps) {
               );
             })}
             {d.prompts.length === 0 && <Empty cols={5}>No prompts asked yet. The weekly monitor asks them.</Empty>}
+          </tbody>
+        </table></div>
+      </Section>
+
+      <Section title="Sites AI cites instead of you" note="Domains cited in this week's AI answers and in Google AI Overviews for your tracked queries, by how many questions cite them. These are where to get listed, quoted or reviewed: a mention there is what answer engines repeat.">
+        <div className="scroll"><table>
+          <thead><tr><th>Site</th><th className="num">Questions citing it</th><th className="num">Citations</th><th>Where</th><th>Example page</th></tr></thead>
+          <tbody>
+            {d.sources.map((r) => (
+              <tr key={str(r.host)}>
+                <td>{str(r.host)}</td><td className="num">{fmtInt(r.prompts)}</td><td className="num">{fmtInt(r.citations)}</td>
+                <td className="small muted">{((r.platforms as string[]) ?? []).map((p) => p.replaceAll("_", " ")).join(", ")}</td>
+                <td className="small wrap-anywhere"><a href={str(r.example)} target="_blank" rel="noreferrer">{truncate(str(r.example).replace(/^https?:\/\//, ""), 80)}</a></td>
+              </tr>
+            ))}
+            {d.sources.length === 0 && <Empty cols={5}>No AI citations recorded yet.</Empty>}
           </tbody>
         </table></div>
       </Section>

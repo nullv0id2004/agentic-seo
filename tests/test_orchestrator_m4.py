@@ -281,3 +281,28 @@ def test_halted_project_keeps_one_pending_page_owner_approval(worker_url, seeded
         s.execute("update approvals set status = 'rejected', decided_at = now() where project_id = %(project_id)s and action_type = 'page_owner' and status = 'pending'")
     assert n == 1, "one acknowledgement per halt"
     assert notified >= 3, "the owner is still paged on every probe"
+
+
+def test_index_issues_close_only_on_a_fresh_inspection(worker_url, seeded):
+    """A site audit without URL Inspection says nothing about Google's index, so it must not close an
+    index issue; a later inspection that no longer reports it does."""
+    from orchestrator.gate_runner import resolve_unseen_issues, write_issues
+
+    url = "https://korum.worldhire.com/blog/hiring"
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        runs = [s.insert("runs", {"workflow": "monthly_full", "trigger": "test", "status": "done", "idempotency_key": uuid.uuid4().hex}) for _ in range(3)]
+    with project_scope(seeded["korum"], caller="collector:gsc_inspection", url=worker_url) as s:
+        insp = s.insert("raw_url_inspection", {"run_id": runs[0], "url": url, "verdict": "NEUTRAL", "coverage_state": "Crawled - currently not indexed"})
+        s.insert("raw_url_inspection", {"run_id": runs[2], "url": url, "verdict": "PASS", "coverage_state": "Submitted and indexed"})
+    with project_scope(seeded["korum"], caller="collector:site_crawl", url=worker_url) as s:
+        s.insert("raw_crawl_pages", {"run_id": runs[1], "url": url, "status_code": 200})
+    issue = {"issue_type": "index_crawled_not_indexed", "severity": "medium", "url": url, "evidence": "Google: Crawled - currently not indexed", "evidence_ref": str(insp)}
+    status = "select status from issues where project_id = %(project_id)s and issue_type = 'index_crawled_not_indexed' and url = %(u)s"
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        write_issues(s, runs[0], {"issues": [issue]})
+        resolve_unseen_issues(s, runs[1], [{"issues": []}])
+        after_crawl = s.fetchone(status, {"u": url})["status"]
+        resolve_unseen_issues(s, runs[2], [{"issues": []}])
+        after_inspection = s.fetchone(status, {"u": url})["status"]
+    assert after_crawl == "open", "a crawl alone does not close an index issue"
+    assert after_inspection == "resolved"

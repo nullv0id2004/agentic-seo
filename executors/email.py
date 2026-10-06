@@ -3,6 +3,7 @@ password, from). Rate limited to the batch cap per run. Reversal: a short retrac
 from __future__ import annotations
 
 import json
+import re
 import smtplib
 from email.message import EmailMessage
 from typing import Any
@@ -13,6 +14,7 @@ from db.connection import ProjectScope
 from executors.base import ExecutionResult, require_approved, require_executed
 
 SECRET = "outreach-smtp"
+EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}")
 
 
 class EmailExecutor:
@@ -40,9 +42,12 @@ class EmailExecutor:
     def execute(self, scope: ProjectScope, project: dict[str, Any], approval: dict[str, Any], params: dict[str, Any]) -> ExecutionResult:
         require_approved(approval)
         p = approval["payload"]
-        to = p.get("to") or p.get("contact_email")
+        # The analyst drafts pitches without addresses; the approver supplies one in the console when approving.
+        to = p.get("to") or p.get("contact_email") or (approval.get("approver_input") or {}).get("to")
         if not to:
-            raise RuntimeError("pitch has no recipient address; the approver must supply one in the payload")
+            raise RuntimeError("pitch has no recipient address; approve it again from the console with an email address")
+        if not EMAIL_RE.fullmatch(to):
+            raise RuntimeError(f"recipient {to!r} is not an email address")
         self._send(to, p["subject"], p["body"])
         scope.execute("update pitches set status = 'sent' where project_id = %(project_id)s and id = %(id)s", {"id": p["pitch_id"]})
         return ExecutionResult(ok=True, detail={"to": to}, reversal_payload={"kind": "send_retraction", "pitch_id": p["pitch_id"], "to": to, "subject": p["subject"]})

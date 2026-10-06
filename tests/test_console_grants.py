@@ -10,7 +10,7 @@ pytestmark = [pytest.mark.db, requires_db]
 CONSOLE_READS = (
     "raw_gsc_performance", "raw_ga4_daily", "raw_crawl_pages", "raw_sitemap_urls", "raw_vitals", "raw_serp",
     "raw_keyword_metrics", "raw_search_status", "raw_ai_keyword_metrics", "raw_llm_mention_metrics",
-    "raw_llm_mentions", "raw_llm_responses", "agent_logs", "audit_log", "mentions", "pitches", "content_briefs",
+    "raw_llm_mentions", "raw_llm_responses", "raw_url_inspection", "raw_keyword_ideas", "agent_logs", "audit_log", "mentions", "pitches", "content_briefs",
 )
 
 
@@ -40,7 +40,10 @@ def test_console_reads_raw_tables_but_writes_none(db_url, seeded):
         conn.execute("select set_config('app.project_id', %s, false)", (pid,))
         for table in CONSOLE_READS:
             conn.execute(f"select count(*) from {table} where project_id = %s", (pid,)).fetchone()
-        for stmt in ("insert into raw_serp (project_id, run_id, query) values (%s, gen_random_uuid(), 'x')",
+        # the approver may supply input when deciding (a pitch recipient); the agent's payload stays read-only
+        conn.execute("update approvals set approver_input = '{}'::jsonb where project_id = %s and false", (pid,))
+        for stmt in ("update approvals set payload = '{}'::jsonb where project_id = %s and false",
+                     "insert into raw_serp (project_id, run_id, query) values (%s, gen_random_uuid(), 'x')",
                      "select count(*) from raw_fetched_documents where project_id = %s"):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 with conn.transaction():

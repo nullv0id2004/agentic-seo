@@ -111,7 +111,8 @@ Three collectors, all fail closed without `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSW
 |---|---|---|---|
 | `ai_keyword_metrics` | quarterly_keyword | `raw_ai_keyword_metrics` | `ai_optimization/ai_keyword_data/keywords_search_volume/live` |
 | `llm_mentions` | weekly_monitor | `raw_llm_mention_metrics`, `raw_llm_mentions` | `llm_mentions/target_metrics_lite/live` and `llm_mentions/search_mentions/live` |
-| `llm_responses` | weekly_monitor | `raw_llm_responses` | `<platform>/llm_responses/live`, ChatGPT by default with web search on |
+| `llm_responses` | weekly_monitor | `raw_llm_responses` | `<platform>/llm_responses/live`, ChatGPT (forced web search) and Perplexity Sonar by default |
+| `keyword_discovery` | quarterly_keyword | `raw_keyword_ideas` | `dataforseo_labs/google/keyword_ideas/live` and `ranked_keywords/live` for the top SERP competitors |
 
 Prompts are built deterministically from the tracked keywords and the brand (`collectors/llm_responses.py`,
 `build_prompts`), capped at 12 per platform per run. Branded keywords and one-edit misspellings of the brand
@@ -132,3 +133,19 @@ collector params to change it.
 DataForSEO reports its charge in every response. The shared HTTP client passes it to the collector, the
 agent log records it, and so the run's `cost_usd` and the monthly budget check include API spend, not only
 model tokens.
+
+## Index coverage, keyword discovery and AI source gaps
+
+- `gsc_inspection` stores Google's full verdict in `raw_url_inspection` (coverage state, last crawl,
+  canonicals, sitemaps). The technical analyst turns every crawled, indexable page that Google has not
+  indexed into an `index_*` issue named after Google's reason; robots, noindex and canonical problems are
+  high (a fix PR can solve them), crawl and quality states are medium. Index issues close only on a later
+  inspection that no longer reports them, never on a crawl alone.
+- `keyword_discovery` (quarterly, before pricing) grows ideas from the seeds and tracked keywords, and
+  pulls the keywords the three domains that most often outrank the site get traffic from, restricted to
+  the project's topic words. The top 60 by volume join the priced universe; keywords no page fits are
+  kept unmapped in `keywords` as content opportunities (at most 40 per run).
+- The console's AI tab lists the sites AI answers and AI Overviews cite instead of the project: the
+  places to get listed or quoted.
+- An approver supplies a pitch's recipient in the console (`approvals.approver_input`, migration 0012);
+  nothing is sent without one.

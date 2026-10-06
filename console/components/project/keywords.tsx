@@ -26,6 +26,16 @@ export async function KeywordsTab({ projectId, range, project }: TabProps) {
       left join sp on sp.k = lower(kw.keyword) left join gq on gq.k = lower(kw.keyword)
       where kw.project_id = $1
       order by km.volume desc nulls last, kw.keyword`, [range, domains]),
+    ideas: await q(`with lr as (select run_id from raw_keyword_ideas where project_id = $1 order by collected_at desc limit 1)
+      select i.keyword, max(i.search_volume) as volume, max(i.keyword_difficulty) as difficulty, max(i.cpc) as cpc,
+        (array_agg(i.intent) filter (where i.intent is not null))[1] as intent,
+        bool_or(i.source = 'idea') as from_seeds,
+        coalesce(jsonb_agg(jsonb_build_object('d', i.competitor, 'r', i.competitor_rank, 'u', i.competitor_url) order by i.competitor_rank)
+                 filter (where i.source = 'competitor'), '[]'::jsonb) as competitors,
+        exists (select 1 from keywords k where k.project_id = $1 and lower(k.keyword) = i.keyword) as tracked,
+        max(i.collected_at) as at
+      from raw_keyword_ideas i where i.project_id = $1 and i.run_id = (select run_id from lr)
+      group by i.keyword order by max(i.search_volume) desc nulls last, i.keyword limit 150`),
   }));
   const rows = d.rows;
   const mapped = rows.filter((r) => r.mapped_url).length;
@@ -67,6 +77,26 @@ export async function KeywordsTab({ projectId, range, project }: TabProps) {
           </tbody>
         </table></div>
         {metricsAt ? <p className="muted small">Keyword metrics last refreshed {fmtDay(metricsAt)}.</p> : null}
+      </Section>
+      <Section title="Keyword opportunities" note={`From the last quarterly discovery${d.ideas[0]?.at ? ` (${fmtDay(d.ideas[0].at)})` : ""}: ideas grown from your seeds, and keywords the sites that outrank you get traffic from. The highest-volume ones join the tracked list; those no page fits stay unmapped as content to write.`}>
+        <div className="scroll"><table>
+          <thead><tr><th>Keyword</th><th className="num">Volume</th><th className="num">Difficulty</th><th className="num">CPC</th><th>Intent</th><th>Competitors ranking</th><th>Tracked</th></tr></thead>
+          <tbody>
+            {d.ideas.map((r) => {
+              const comps = (r.competitors as { d: string; r: number | null; u: string | null }[]) ?? [];
+              return (
+                <tr key={str(r.keyword)}>
+                  <td>{str(r.keyword)}{r.from_seeds ? <div className="muted small">from your seeds</div> : null}</td>
+                  <td className="num">{fmtInt(r.volume)}</td><td className="num">{fmtInt(r.difficulty)}</td>
+                  <td className="num">{r.cpc == null ? "–" : fmtUsd(r.cpc)}</td><td className="muted">{str(r.intent)}</td>
+                  <td className="small">{comps.slice(0, 3).map((c, i) => <div key={i} className="wrap-anywhere">{c.d} <span className="muted">#{str(c.r)}</span></div>)}{comps.length === 0 ? <span className="muted">none</span> : null}</td>
+                  <td>{r.tracked ? <span className="pill ok">yes</span> : <span className="muted">no</span>}</td>
+                </tr>
+              );
+            })}
+            {d.ideas.length === 0 && <Empty cols={7}>No discovery yet. The quarterly keyword run finds opportunities; run it from SSH with: python worker.py run {str(project.slug)} quarterly_keyword</Empty>}
+          </tbody>
+        </table></div>
       </Section>
     </>
   );

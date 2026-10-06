@@ -17,6 +17,24 @@ API = "https://api.dataforseo.com/v3/ai_optimization/{platform}/llm_responses/li
 DEFAULT_MODELS = {"chat_gpt": "gpt-4.1", "gemini": "gemini-2.5-flash", "claude": "claude-sonnet-4-20250514", "perplexity": "sonar"}
 PROMPT_TEMPLATES = ("What are the best options for {keyword} in India?", "Which websites should I use for {keyword}?")
 MAX_PROMPTS = 12
+# ChatGPT and Perplexity by default: the two assistants people use to research options with live sources.
+# Each prompt costs about USD 0.07 on ChatGPT with search; pass platforms/max_prompts to change the spend.
+DEFAULT_PLATFORMS = ("chat_gpt", "perplexity")
+
+
+def request_body(platform: str, prompt: str, model: str, country: str) -> dict[str, Any]:
+    """Fields differ per platform: ChatGPT needs web search switched on and forced; Perplexity's Sonar
+    models always search and reject the web_search flag, taking only the country."""
+    body: dict[str, Any] = {"user_prompt": prompt, "model_name": model, "max_output_tokens": 1024}
+    if platform == "chat_gpt":
+        # Without force, ChatGPT often answers from memory and cites nothing, so the prompt
+        # cannot show whether the site would be cited.
+        body.update({"web_search": True, "force_web_search": True, "web_search_country_iso_code": country})
+    elif platform == "perplexity":
+        body["web_search_country_iso_code"] = country
+    else:
+        body["web_search"] = True
+    return body
 
 
 def _edit_distance(a: str, b: str) -> int:
@@ -88,7 +106,7 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     if not prompts:
         ctx.gap("no prompts: the project has no tracked keywords yet", "all")
         return
-    platforms = list(params.get("platforms") or ["chat_gpt"])
+    platforms = list(params.get("platforms") or DEFAULT_PLATFORMS)
     country = params.get("country_iso", "IN")
     domains = {d.lower().removeprefix("www.") for d in project.domains}
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
@@ -100,12 +118,7 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 continue
             for prompt in prompts:
                 ratelimit.acquire("dataforseo")
-                body = {"user_prompt": prompt, "model_name": model, "web_search": True, "max_output_tokens": 1024}
-                if platform == "chat_gpt":
-                    # Without force, ChatGPT often answers from memory and cites nothing, so the prompt
-                    # cannot show whether the site would be cited.
-                    body["web_search_country_iso_code"] = country
-                    body["force_web_search"] = True
+                body = request_body(platform, prompt, model, country)
                 r = http.post(API.format(platform=platform), json=[body])
                 if r.status_code != 200:
                     ctx.gap(f"llm responses ({platform}) returned {r.status_code}", prompt)

@@ -8,6 +8,7 @@ from collectors import ratelimit
 from collectors.base import CollectorContext
 from collectors.google_auth import GSC_SCOPE, access_token
 from collectors.http import client
+from db.connection import jsonb
 
 API = "https://searchconsole.googleapis.com/webmasters/v3"
 INSPECT_API = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
@@ -60,7 +61,8 @@ def collect_performance(ctx: CollectorContext, params: dict[str, Any]) -> None:
 
 
 def collect_inspection(ctx: CollectorContext, params: dict[str, Any]) -> None:
-    """URL Inspection for a list of urls. Writes raw_crawl_pages.indexable. Hard cap 2000/day per property."""
+    """URL Inspection for a list of urls. Writes raw_crawl_pages.indexable (the protected-route check reads it)
+    and the full verdict to raw_url_inspection. Hard cap 2000/day per property."""
     from config.settings import get_settings
 
     project = ctx.project
@@ -96,6 +98,15 @@ def collect_inspection(ctx: CollectorContext, params: dict[str, Any]) -> None:
             ctx.write("raw_crawl_pages", {
                 "url": u, "indexable": indexable, "robots_meta": res.get("robotsTxtState"),
                 "canonical": res.get("googleCanonical"),
+            })
+            # The full verdict: the coverage state is what decides the fix for a page that is not indexed.
+            ctx.write("raw_url_inspection", {
+                "url": u, "verdict": verdict, "coverage_state": res.get("coverageState"),
+                "indexing_state": res.get("indexingState"), "robots_txt_state": res.get("robotsTxtState"),
+                "page_fetch_state": res.get("pageFetchState"), "last_crawl_time": res.get("lastCrawlTime"),
+                "crawled_as": res.get("crawledAs"), "google_canonical": res.get("googleCanonical"),
+                "user_canonical": res.get("userCanonical"), "sitemaps": jsonb(res.get("sitemap") or []),
+                "referring_urls": jsonb(res.get("referringUrls") or []),
             })
 
 
