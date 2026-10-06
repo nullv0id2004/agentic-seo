@@ -12,6 +12,7 @@ from orchestrator import approvals
 from orchestrator.gate_runner import analyse_and_gate
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
+from rules.domains import brand_label
 
 WORKFLOW = "quarterly_keyword"
 
@@ -21,15 +22,19 @@ DISCOVERED_LIMIT = 60      # discovered keywords added to the priced universe pe
 OPPORTUNITY_LIMIT = 40     # unmapped keywords kept per run as content opportunities
 
 
-def discovered_keywords(scope: ProjectScope, run_id: UUID, limit: int = DISCOVERED_LIMIT) -> list[str]:
-    """The highest-volume keywords keyword_discovery found in this run, minus any that name a competitor
-    (their brand searches, such as a login page, are not opportunities). Deterministic."""
+def discovered_keywords(scope: ProjectScope, run_id: UUID, limit: int = DISCOVERED_LIMIT, extra_brands: list[str] | None = None) -> list[str]:
+    """The highest-volume keywords keyword_discovery found in this run, minus brand searches: navigational
+    intent (DataForSEO's own label: "amazon careers jobs", "apna jobs" in run be9ad355) and any keyword
+    naming a competitor. Deterministic."""
     rows = scope.fetchall(
-        """select keyword, max(search_volume) as volume, array_remove(array_agg(distinct competitor), null) as competitors
+        """select keyword, max(search_volume) as volume, array_remove(array_agg(distinct competitor), null) as competitors,
+                  bool_or(intent = 'navigational') as navigational
              from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s
             group by keyword order by max(search_volume) desc nulls last, keyword""", {"run_id": run_id})
-    brands = {label for r in rows for c in (r["competitors"] or []) for label in c.split(".")[:-1] if len(label) > 2 and label != "www"}
-    out = [r["keyword"] for r in rows if not any(b in r["keyword"].split() or b in r["keyword"].replace(" ", "") for b in brands)]
+    brands = {brand_label(c) for r in rows for c in (r["competitors"] or [])} | set(extra_brands or [])
+    brands = {b for b in brands if len(b) > 2}
+    out = [r["keyword"] for r in rows if not r["navigational"]
+           and not any(b in r["keyword"].split() or b in r["keyword"].replace(" ", "") for b in brands)]
     return out[:limit]
 
 
@@ -58,7 +63,7 @@ def build(rt: Runtime) -> StateGraph:
         out["keyword_discovery"] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
         with rt.scope(project.id) as s:
             universe = keyword_universe(s, project, state.get("params", {}).get("keywords", []))
-            universe += [k for k in discovered_keywords(s, run_id) if k not in universe]
+            universe += [k for k in discovered_keywords(s, run_id, extra_brands=[brand_label(c) for c in project.competitors]) if k not in universe]
         for name in ("keyword_metrics", "ai_keyword_metrics"):
             res = rt.run_collector(project, run_id, name, {"keywords": universe})
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
@@ -83,7 +88,7 @@ def build(rt: Runtime) -> StateGraph:
         run_id = UUID(state["run_id"])
         art = state.get("artifacts", {}).get("keyword") or {}
         queued = list(state.get("approvals", []))
-        proposals = [k for k in art.get("keywords", []) if k.get("mapped_url") and not k.get("blocked_for_index")]
+        proposals = [k for k in art.get("keywords", []) if k.get("mapped_url") and not k.get("blocked_for_index") and k.get("relevant") is not False]
         if proposals:
             with rt.scope(project.id) as s:
                 current = {r["keyword"]: r["mapped_url"] for r in s.fetchall("select keyword, mapped_url from keywords where project_id = %(project_id)s")}
@@ -95,7 +100,7 @@ def build(rt: Runtime) -> StateGraph:
                         {"kind": "restore_previous_mapping", "previous": [{"keyword": p["keyword"], "mapped_url": current.get(p["keyword"])} for p in changes]})
                     queued.append(str(aid))
         # Keywords no existing page fits are content opportunities: tracked unmapped, never mapped here.
-        gaps = [k for k in art.get("keywords", []) if not k.get("mapped_url") and not k.get("blocked_for_index")]
+        gaps = [k for k in art.get("keywords", []) if not k.get("mapped_url") and not k.get("blocked_for_index") and k.get("intent") != "navigational" and k.get("relevant") is True]
         gaps.sort(key=lambda k: -(k.get("volume") or k.get("volume_high") or 0))
         if gaps:
             with rt.scope(project.id) as s:

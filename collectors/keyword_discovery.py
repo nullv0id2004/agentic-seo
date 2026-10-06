@@ -2,8 +2,9 @@
 
 Two sources, both written to raw_keyword_ideas exactly as returned:
 - ideas: keyword_ideas for the project's seeds and tracked keywords (source = 'idea')
-- competitors: ranked_keywords for the domains that most often outrank the site in the latest SERP checks
-  (source = 'competitor', with the competitor's rank and url)
+- competitors: ranked_keywords for the project's configured competitors (projects.competitors)
+  (source = 'competitor', with the competitor's rank and url). Without configured competitors this part
+  is skipped with a gap row; the domains that most often outrank the site are logged as suggestions.
 
 Competitor results are restricted, in the API request, to keywords containing one of the project's topic
 words, so a large site such as a social network contributes keywords about this topic, not its whole
@@ -18,7 +19,9 @@ from typing import Any
 from collectors import ratelimit
 from collectors.base import CollectorContext
 from collectors.http import client
+from collectors.llm_responses import brand_tokens, is_branded
 from config.settings import get_settings
+from rules.domains import registrable
 
 IDEAS_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live"
 RANKED_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live"
@@ -35,17 +38,13 @@ GENERIC_WORDS = frozenset({"best", "top", "free", "online", "india", "near", "wi
                            "service", "app", "apps", "list", "2024", "2025", "2026"})
 
 
-def _bare(domain: str | None) -> str:
-    d = (domain or "").lower()
-    return d[4:] if d.startswith("www.") else d
-
-
-def topic_words(keywords: list[str], brand_tokens: set[str], limit: int = 8) -> list[str]:
-    """Most frequent non-generic words across the seeds and tracked keywords, brand words excluded."""
+def topic_words(keywords: list[str], brand: set[str], limit: int = 8) -> list[str]:
+    """Most frequent non-generic words across the seeds and tracked keywords. Brand words and their
+    misspellings ("kourm" for "korum", run be9ad355) are excluded."""
     counts: Counter[str] = Counter()
     for k in keywords:
         for w in re.findall(r"[a-z0-9]+", k.lower()):
-            if len(w) >= 3 and w not in GENERIC_WORDS and w not in brand_tokens:
+            if len(w) >= 3 and w not in GENERIC_WORDS and not is_branded(w, brand):
                 counts[w] += 1
     return [w for w, _ in counts.most_common(limit)]
 
@@ -61,9 +60,9 @@ def competitors_from_serp(rows: list[dict[str, Any]], own: set[str], limit: int 
     for r in latest.values():
         seen: set[str] = set()
         for item in r.get("results") or []:
-            d = _bare(item.get("domain"))
+            d = registrable(item.get("domain"))
             rank = item.get("rank") or 99
-            if not d or rank > 10 or d in seen or d in GENERIC_DOMAINS or d in own or any(d.endswith("." + o) for o in own):
+            if not d or rank > 10 or d in seen or d in GENERIC_DOMAINS or d in own:
                 continue
             seen.add(d)
             counts[d] += 1
@@ -105,12 +104,16 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     language = params.get("language_code", "en")
     tracked = [r["keyword"] for r in ctx.read("select keyword from keywords where project_id = %(project_id)s order by keyword limit 200")]
     seeds = sorted({k.strip().lower() for k in [*project.keyword_seeds, *(params.get("seeds") or []), *tracked] if k and k.strip()})
-    own = {_bare(d) for d in project.domains}
-    brand = {w for d in own for w in d.split(".")[:-1] if len(w) > 2} | {(project.display_name or project.slug).lower()}
+    own = {registrable(d) for d in project.domains}
+    brand = brand_tokens(project.display_name or project.slug, list(project.domains), project.brand_context_terms)
     words = topic_words(seeds, brand)
-    competitors = list(params.get("competitors") or competitors_from_serp(
-        ctx.read("select query, results, collected_at from raw_serp where project_id = %(project_id)s order by collected_at desc limit 200"), own))
+    competitors = sorted({registrable(c) for c in (params.get("competitors") or project.competitors) if c})
     ctx.result.detail.update({"seeds": len(seeds), "topic_words": words, "competitors": competitors})
+    if not competitors:
+        suggested = competitors_from_serp(
+            ctx.read("select query, results, collected_at from raw_serp where project_id = %(project_id)s order by collected_at desc limit 200"), own)
+        ctx.result.detail["suggested_competitors"] = suggested
+        ctx.gap(f"no competitors configured; suggestions from search results: {', '.join(suggested) or 'none'}", "competitors")
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
     with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         if seeds:

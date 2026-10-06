@@ -39,13 +39,15 @@ export async function TechnicalTab({ projectId }: TabProps) {
         select distinct on (url) url, indexable, robots_meta, canonical, collected_at from raw_crawl_pages
         where project_id = $1 and status_code is null and indexable is not null order by url, collected_at desc),
       pages as (
-        select distinct on (url) url, status_code, word_count, robots_meta, x_robots_tag from raw_crawl_pages
+        select distinct on (url) url, status_code, word_count, robots_meta, x_robots_tag, canonical from raw_crawl_pages
         where project_id = $1 and status_code is not null order by url, collected_at desc)
       select coalesce(ui.url, l.url) as url, coalesce(ui.verdict = 'PASS', l.indexable) as indexable, ui.coverage_state,
         coalesce(ui.robots_txt_state, l.robots_meta) as robots_txt, coalesce(ui.google_canonical, l.canonical) as google_canonical,
         ui.user_canonical, ui.last_crawl_time, jsonb_array_length(coalesce(ui.sitemaps, '[]'::jsonb)) > 0 as google_sitemap,
         coalesce(ui.collected_at, l.collected_at) as collected_at,
-        (p.status_code = 200 and p.word_count is not null and not (coalesce(p.robots_meta, '') ilike '%noindex%' or coalesce(p.x_robots_tag, '') ilike '%noindex%')) as should_rank,
+        (p.status_code = 200 and p.word_count is not null and not (coalesce(p.robots_meta, '') ilike '%noindex%' or coalesce(p.x_robots_tag, '') ilike '%noindex%')
+          and (p.canonical is null or rtrim(lower(p.canonical), '/') = rtrim(lower(p.url), '/') or p.canonical not like 'http%')) as should_rank,
+        p.canonical as page_canonical,
         exists (select 1 from critical_rules c where c.project_id = $1 and c.active and c.assertion = 'must_noindex'
                 and regexp_replace(coalesce(ui.url, l.url), '^https?://[^/]+', '') ~ c.url_pattern) as protected
       from ui full join legacy l on l.url = ui.url left join pages p on p.url = coalesce(ui.url, l.url)
@@ -166,13 +168,15 @@ export async function TechnicalTab({ projectId }: TabProps) {
         </table></div>
       </Section>
 
-      <Section title="Google index status" note="URL Inspection, latest verdict per URL. Pages meant to stay out (protected routes, noindex, non-HTML) are listed last.">
+      <Section title="Google index status" note="URL Inspection, latest verdict per URL. Pages meant to stay out (protected routes, noindex, non-HTML, or a canonical naming another URL) are listed last.">
         <div className="scroll"><table>
           <thead><tr><th>URL</th><th>Indexed</th><th>Google&apos;s reason</th><th>Last crawled by Google</th><th>Google-selected canonical</th><th>Inspected</th></tr></thead>
           <tbody>
             {d.inspection.map((r) => (
               <tr key={str(r.url)}>
-                <td className="wrap-anywhere">{pathOf(r.url)}{r.should_rank && !r.protected ? null : <div className="muted small">{r.protected ? "protected, must stay out" : "meant to stay out"}</div>}</td>
+                <td className="wrap-anywhere">{pathOf(r.url)}{r.should_rank && !r.protected ? null : <div className="muted small">{r.protected ? "protected, must stay out"
+                  : r.page_canonical && str(r.page_canonical).startsWith("http") && str(r.page_canonical).replace(/\/$/, "").toLowerCase() !== str(r.url).replace(/\/$/, "").toLowerCase()
+                    ? `canonical points to ${str(r.page_canonical).replace(/^https?:\/\//, "")}` : "meant to stay out"}</div>}</td>
                 <td>{r.indexable == null ? <span className="muted">unknown</span> : <Status value={r.indexable ? "indexed" : "no"} />}</td>
                 <td className="small">{str(r.coverage_state) || <span className="muted">not recorded</span>}{str(r.robots_txt) === "DISALLOWED" ? <div className="muted">blocked by robots.txt</div> : null}</td>
                 <td className="small nowrap">{r.last_crawl_time ? fmtDay(r.last_crawl_time) : <span className="muted">never</span>}</td>

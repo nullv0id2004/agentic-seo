@@ -28,7 +28,16 @@ brand_rules:
   - {type: banned_phrase, pattern: '(curated|hand-picked|AI-powered)',    severity: block}
   - {type: banned_phrase, pattern: '\bCandidate\b',                       severity: block, rationale: 'use Job Seeker on public pages'}
   - {type: regex,         pattern: 'you[^.]{0,40}(cheap|invisible|exposed)', severity: block}
-keyword_seeds: [job search platform, recruiter software, hiring platform india]
+# From the site's own llms.txt. The keyword analyst judges relevance against this.
+description: >-
+  KORUM is a confidential, consent-led hiring platform where senior professionals stay private and verified
+  recruiters connect only with permission. Professionals choose a discoverable or confidential (masked) profile;
+  recruiters express interest and the professional approves before any conversation. For senior, specialist and
+  hard-to-fill talent and the recruiters and companies hiring them, in India, the UK and the US.
+# Seeds describe that niche; broad job-board searches ("jobs near me", government jobs) are not KORUM's market.
+keyword_seeds: [confidential job search, executive job search, senior professional jobs, anonymous job search, executive search firm, headhunter for senior roles, job search while employed, confidential hiring platform, recruiter platform for senior talent]
 # "KORUM" is also a fishing tackle brand and an Indian election app. These terms tell AI answers about this site apart.
 brand_context_terms: [WorldHire, job, hiring, recruit, employer, job seeker]
+# Job platforms KORUM competes with in India. Keyword discovery reads what they rank for; pitches never go to them.
+competitors: [naukri.com, linkedin.com, indeed.com, foundit.in, glassdoor.co.in, apna.co, instahyre.com, iimjobs.com, hirist.tech, cutshort.io, shine.com, wellfound.com]
 cross_link_exclusions: [worldhire]

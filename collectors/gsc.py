@@ -95,10 +95,9 @@ def collect_inspection(ctx: CollectorContext, params: dict[str, Any]) -> None:
             res = r.json().get("inspectionResult", {}).get("indexStatusResult", {})
             verdict = res.get("verdict")
             indexable = None if verdict is None else (verdict == "PASS" and res.get("indexingState") == "INDEXING_ALLOWED")
-            ctx.write("raw_crawl_pages", {
-                "url": u, "indexable": indexable, "robots_meta": res.get("robotsTxtState"),
-                "canonical": res.get("googleCanonical"),
-            })
+            # indexable feeds the protected-route check. robots_meta stays empty here: it holds a page's robots
+            # meta tag elsewhere, and a robots.txt state in it read as "no noindex" to the crawl checks.
+            ctx.write("raw_crawl_pages", {"url": u, "indexable": indexable, "canonical": res.get("googleCanonical")})
             # The full verdict: the coverage state is what decides the fix for a page that is not indexed.
             ctx.write("raw_url_inspection", {
                 "url": u, "verdict": verdict, "coverage_state": res.get("coverageState"),

@@ -418,10 +418,11 @@ def test_keyword_discovery_writes_ideas_and_topic_filtered_competitor_keywords(w
 
     from collectors.keyword_discovery import competitors_from_serp, topic_words
 
-    assert topic_words(["job search platform", "hiring platform india", "korum jobs"], {"korum", "worldhire"}) == ["job", "hiring", "jobs"]
+    assert topic_words(["job search platform", "hiring platform india", "korum jobs", "kourm"], {"korum", "worldhire"}) == ["job", "hiring", "jobs"], \
+        "run be9ad355 took the brand misspelling kourm as a topic word"
     serp = [{"query": "q1", "collected_at": "2026-10-01", "results": [{"rank": 1, "domain": "www.naukri.com"}, {"rank": 2, "domain": "youtube.com"}, {"rank": 3, "domain": "korum.worldhire.com"}]},
-            {"query": "q2", "collected_at": "2026-10-01", "results": [{"rank": 4, "domain": "naukri.com"}, {"rank": 5, "domain": "indeed.com"}, {"rank": 15, "domain": "apna.co"}]}]
-    assert competitors_from_serp(serp, {"korum.worldhire.com"}) == ["naukri.com", "indeed.com"], "generic sites, our own domain and ranks past 10 are left out"
+            {"query": "q2", "collected_at": "2026-10-01", "results": [{"rank": 4, "domain": "naukri.com"}, {"rank": 5, "domain": "tr.indeed.com"}, {"rank": 15, "domain": "apna.co"}]}]
+    assert competitors_from_serp(serp, {"worldhire.com"}) == ["naukri.com", "indeed.com"], "subdomains collapse; generic sites, our own domain and ranks past 10 are left out"
 
     bodies = []
 
@@ -438,7 +439,7 @@ def test_keyword_discovery_writes_ideas_and_topic_filtered_competitor_keywords(w
 
     project = _project(worker_url, seeded)
     run_id = uuid.uuid4()
-    res = collect("keyword_discovery", project, run_id, {"_transport": httpx.MockTransport(handle), "competitors": ["naukri.com"]}, db_url=worker_url)
+    res = collect("keyword_discovery", project.model_copy(update={"competitors": ["www.naukri.com"]}), run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
     assert not res.partial and res.rows_written == 2 and round(res.cost_usd, 6) == 0.004
     ranked = [b for p, b in bodies if p.endswith("/ranked_keywords/live")][0]
     assert ranked["target"] == "naukri.com" and ranked["filters"][:2] == ["keyword_data.keyword", "regex"] and "job" in ranked["filters"][2]
@@ -449,3 +450,34 @@ def test_keyword_discovery_writes_ideas_and_topic_filtered_competitor_keywords(w
     assert rows[0]["source"] == "competitor" and rows[0]["competitor_rank"] == 2 and rows[0]["keyword_difficulty"] == 60
     assert rows[1] == {"keyword": "job portal india", "source": "idea", "competitor": None, "competitor_rank": None, "search_volume": 9900, "keyword_difficulty": 42, "intent": "commercial"}
     assert found == ["job portal india"], "a competitor's brand search is not an opportunity"
+
+
+def test_keyword_discovery_needs_configured_competitors(worker_url, seeded):
+    """Guessed from search results, run be9ad355 took LinkedIn's Turkish subdomain and a business directory as
+    competitors. Without a configured list the competitor part is skipped and the guesses are only suggested."""
+    import httpx
+
+    paths = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(200, json=_dfs_task({"items": []}))
+
+    project = _project(worker_url, seeded).model_copy(update={"competitors": []})
+    res = collect("keyword_discovery", project, uuid.uuid4(), {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
+    assert all(not p.endswith("/ranked_keywords/live") for p in paths)
+    assert res.partial and "suggested_competitors" in res.detail
+
+
+def test_discovered_keywords_drop_brand_searches(worker_url, seeded):
+    from orchestrator.graphs.quarterly_keyword import discovered_keywords
+
+    project = _project(worker_url, seeded)
+    run_id = uuid.uuid4()
+    with project_scope(project.id, caller="collector:keyword_discovery", url=worker_url) as s:
+        for kw, vol, intent, comp in [("amazon careers jobs", 90000, "navigational", None), ("job search websites", 27100, "commercial", None),
+                                      ("indeed job search", 22200, "commercial", None), ("naukri login", 50000, "commercial", "naukri.com")]:
+            s.insert("raw_keyword_ideas", {"run_id": run_id, "keyword": kw, "source": "competitor" if comp else "idea", "competitor": comp,
+                                           "search_volume": vol, "intent": intent})
+    with project_scope(project.id, url=worker_url) as s:
+        assert discovered_keywords(s, run_id, extra_brands=["indeed"]) == ["job search websites"]

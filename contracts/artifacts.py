@@ -49,6 +49,7 @@ class KeywordProposal(Assertion):
     volume_low: int | None = None
     volume_high: int | None = None
     blocked_for_index: bool = False
+    relevant: bool | None = None   # the analyst's judgement against projects.description; only an explicit true is kept as an opportunity, false is never mapped
     rationale: str | None = None
 
 

@@ -67,6 +67,8 @@ class ProjectConfig(BaseModel):
     # Words that tell this brand apart from others sharing its name. The first one qualifies the brand in
     # AI prompts ("KORUM (WorldHire)"); any of them in an AI answer marks a brand mention as about this project.
     brand_context_terms: list[str] = Field(default_factory=list)
+    competitors: list[str] = Field(default_factory=list)   # domains: keyword discovery source, never pitched
+    description: str | None = None   # what the project offers and to whom; keyword relevance is judged against it
     cross_link_exclusions: list[str] = Field(default_factory=list)  # slugs whose primary keywords this project may not claim
 
     @field_validator("slug")
@@ -103,6 +105,8 @@ class Project(BaseModel):
     critical_paths: list[str] = Field(default_factory=list)
     keyword_seeds: list[str] = Field(default_factory=list)
     brand_context_terms: list[str] = Field(default_factory=list)
+    competitors: list[str] = Field(default_factory=list)   # domains: keyword discovery source, never pitched
+    description: str | None = None   # what the project offers and to whom; keyword relevance is judged against it
     github_repo: str | None = None
     cms_publish_url: str | None = None
     active: bool = True

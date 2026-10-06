@@ -142,9 +142,16 @@ model tokens.
   high (a fix PR can solve them), crawl and quality states are medium. Index issues close only on a later
   inspection that no longer reports them, never on a crawl alone.
 - `keyword_discovery` (quarterly, before pricing) grows ideas from the seeds and tracked keywords, and
-  pulls the keywords the three domains that most often outrank the site get traffic from, restricted to
-  the project's topic words. The top 60 by volume join the priced universe; keywords no page fits are
-  kept unmapped in `keywords` as content opportunities (at most 40 per run).
+  pulls the keywords the project's configured `competitors` (YAML, migration 0013) rank for, restricted to
+  the project's topic words. Without configured competitors that part is skipped and search-result guesses
+  are logged as suggestions only. The top 60 by volume, minus navigational and competitor-brand searches,
+  join the priced universe. The keyword analyst judges each keyword against the project's `description`
+  (migration 0014); only keywords it explicitly marks relevant and no page fits are kept unmapped in
+  `keywords` as content opportunities (at most 40 per run), and an irrelevant keyword is never mapped.
+- The technical analyst reads crawl rows only (URL Inspection rows share `raw_crawl_pages`), and a page
+  whose canonical names another URL is not an index issue: not being indexed there is the intent.
+- The off-page analyst never pitches the project's own registrable domain or a configured competitor, and
+  drops a draft that cites a year before last year.
 - The console's AI tab lists the sites AI answers and AI Overviews cite instead of the project: the
   places to get listed or quoted.
 - An approver supplies a pitch's recipient in the console (`approvals.approver_input`, migration 0012);

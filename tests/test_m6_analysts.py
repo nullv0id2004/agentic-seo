@@ -1,5 +1,6 @@
 """M6: keyword volumes only from raw rows, content statistics only from fetched documents, offpage cap in
 code, ecommerce checks, content cap, and the quarterly / content graphs end to end."""
+import json
 import uuid
 from datetime import UTC, datetime
 
@@ -56,6 +57,33 @@ def test_keyword_analyst_never_emits_a_volume_not_in_raw_rows(worker_url, seeded
     assert all(k.evidence_ref in (m1, m2, m3) for k in out.keywords)
 
 
+def test_keyword_analyst_judges_relevance_against_the_project_description(worker_url, seeded):
+    """Run be9ad355 kept "steve jobs apple" and "sarkari job" as opportunities for a confidential hiring
+    platform for senior professionals. The analyst now sees what the project offers and marks relevance;
+    an irrelevant keyword is never mapped."""
+    project = _project(worker_url, seeded)
+    assert project.description and "confidential" in project.description
+    m1, m2 = uuid.uuid4(), uuid.uuid4()
+    rows = {"raw_keyword_metrics": [
+        {"id": m1, "keyword": "confidential job search", "volume": 480, "volume_is_range": False, "difficulty": 20},
+        {"id": m2, "keyword": "steve jobs apple", "volume": 90000, "volume_is_range": False, "difficulty": 70}],
+        "raw_gsc_performance": [], "keywords": [], "critical_rules": [],
+        "raw_crawl_pages": [{"url": "https://korum.worldhire.com/jobs", "status_code": 200}]}
+    seen = {}
+
+    def reply(system, user, schema):
+        seen["offers"] = json.loads(user)["offers"]
+        return {"assignments": [
+            {"keyword": "confidential job search", "relevant": True, "intent": "commercial", "mapped_url": None},
+            {"keyword": "steve jobs apple", "relevant": False, "intent": "informational", "mapped_url": "https://korum.worldhire.com/jobs"}]}
+
+    out = run_keyword(AnalystContext(llm=FakeLLM({"keyword": reply}), model="fake"), AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
+    by = {k.keyword: k for k in out.keywords}
+    assert "consent-led" in seen["offers"]
+    assert by["confidential job search"].relevant is True
+    assert by["steve jobs apple"].relevant is False and by["steve jobs apple"].mapped_url is None
+
+
 def test_content_strips_unbacked_statistics_and_enforces_cap(worker_url, seeded):
     project = _project(worker_url, seeded)
     d1 = uuid.uuid4()
@@ -80,6 +108,25 @@ def test_content_strips_unbacked_statistics_and_enforces_cap(worker_url, seeded)
     with pytest.raises(ContentCapReached):
         run_content(AnalystContext(llm=llm, model="fake"), AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows, params={"keyword": "x"}))
     assert len(llm.calls) == 1, "the cap is checked before any model call"
+
+
+def test_offpage_never_pitches_own_sites_or_competitors_or_old_data(worker_url, seeded):
+    """Run 33a9a102 drafted pitches to worldhire.com (the parent site), LinkedIn, Glassdoor and foundit,
+    one offering "job seeker trends in 2023" in 2026."""
+    project = _project(worker_url, seeded)
+    domains = ["worldhire.com", "www.linkedin.com", "www.glassdoor.co.in", "jobs.foundit.in", "blog.example.in", "news.example.org"]
+    serp = [{"id": uuid.uuid4(), "query": "q", "results": [{"rank": i + 1, "domain": d} for i, d in enumerate(domains)], "ai_overview_citations": []}]
+    asked = {}
+
+    def reply(system, user, schema):
+        asked["outlets"] = [o["outlet_domain"] for o in json.loads(user)["outlets"]]
+        return {"pitches": [{"outlet_domain": "blog.example.in", "subject": "Hiring data for 2026", "body": "Fresh numbers."},
+                            {"outlet_domain": "news.example.org", "subject": "Job seeker trends in 2023", "body": "Old numbers."}]}
+
+    out = run_offpage(AnalystContext(llm=FakeLLM({"offpage": reply}), model="fake"),
+                      AnalystInput(project=project, run_id=uuid.uuid4(), rows={"raw_serp": serp, "mentions": []}))
+    assert sorted(asked["outlets"]) == ["blog.example.in", "news.example.org"], "own registrable domain and configured competitors are never outlets"
+    assert [p.outlet_url for p in out.pitches] == ["https://blog.example.in/"], "a pitch offering data from 2023 is dropped"
 
 
 def test_offpage_cap_is_enforced_in_code(worker_url, seeded):
@@ -270,19 +317,28 @@ def test_index_issues_name_googles_reason_and_skip_pages_meant_to_stay_out(worke
     base = "https://korum.worldhire.com"
     page = lambda path, **kw: {"id": uuid.uuid4(), "url": base + path, "status_code": 200, "word_count": 900, "title": path, "h1": ["h"],  # noqa: E731
                                "meta_description": "d", "canonical": base + path, **kw}
-    pages = [page("/a"), page("/b"), page("/c"), page("/d"), page("/login", x_robots_tag="noindex")]
+    pages = [page("/a"), page("/b"), page("/c"), page("/d"), page("/login", x_robots_tag="noindex"),
+             page("/about-company", canonical="https://worldhire.com/about-company"),
+             # URL Inspection rows share the table (no status code). Run 33a9a102: one overwrote the crawl row
+             # for its URL and another, on a protected route, raised a false critical violation.
+             {"id": uuid.uuid4(), "url": base + "/a", "status_code": None, "indexable": False, "canonical": base + "/a"},
+             {"id": uuid.uuid4(), "url": base + "/dashboard", "status_code": None, "indexable": False, "robots_meta": "ROBOTS_TXT_STATE_UNSPECIFIED"}]
     insp = lambda path, **kw: {"id": uuid.uuid4(), "url": base + path, "collected_at": "2026-10-06T00:00:00+00:00", **kw}  # noqa: E731
-    rows = {"critical_rules": [], "raw_vitals": [], "raw_sitemap_urls": [], "raw_crawl_pages": pages, "raw_url_inspection": [
+    rules = [{"rule_key": "no_indexable_auth_route", "url_pattern": "^/(dashboard|recruiter|admin|api)(/|$)", "assertion": "must_noindex", "active": True}]
+    rows = {"critical_rules": rules, "raw_vitals": [], "raw_sitemap_urls": [], "raw_crawl_pages": pages, "raw_url_inspection": [
+        insp("/about-company", verdict="NEUTRAL", coverage_state="Alternate page with proper canonical tag"),
         insp("/a", verdict="NEUTRAL", coverage_state="Discovered - currently not indexed"),
         insp("/b", verdict="NEUTRAL", coverage_state="Crawled - currently not indexed", last_crawl_time="2026-09-30T08:00:00Z", sitemaps=["s"]),
         insp("/c", verdict="PASS", coverage_state="Submitted and indexed", google_canonical=base + "/a", user_canonical=base + "/c"),
         insp("/d", verdict="FAIL", coverage_state="Excluded by 'noindex' tag", robots_txt_state="DISALLOWED"),
         insp("/login", verdict="NEUTRAL", coverage_state="Excluded by 'noindex' tag"),
     ]}
-    found = {(d.url, d.issue_type, d.severity) for d in detect(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows)) if d.issue_type in INDEX_ISSUE_TYPES}
+    detected = detect(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
+    assert not [d for d in detected if d.issue_type == "critical_rule_violation"], "an inspection row is not a crawled page"
+    found = {(d.url, d.issue_type, d.severity) for d in detected if d.issue_type in INDEX_ISSUE_TYPES}
     assert found == {
         (base + "/a", "index_discovered_not_crawled", "medium"),
         (base + "/b", "index_crawled_not_indexed", "medium"),
         (base + "/c", "index_canonical_mismatch", "high"),
         (base + "/d", "index_blocked_by_robots", "high"),
-    }, "the noindex login page is meant to stay out and gets no index issue"
+    }, "the noindex login page and the page canonical to worldhire.com are meant to stay out"

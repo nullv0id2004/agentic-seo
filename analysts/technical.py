@@ -10,7 +10,7 @@ import json
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -84,7 +84,10 @@ for jobs as job seekers, never candidates."""
 def detect(inp: AnalystInput) -> list[Detected]:
     """Deterministic pre-pass. Every Detected carries the raw row id it rests on."""
     project = inp.project
-    pages = inp.table("raw_crawl_pages")
+    # raw_crawl_pages also holds URL Inspection rows (no status code). Run 33a9a102 read one as a crawled
+    # protected page and raised a false critical violation, and inspection rows overwrote crawl rows in
+    # by_url so no index issue could fire. Every check here is about what the crawler fetched.
+    pages = crawled_pages(inp.table("raw_crawl_pages"))
     vitals = inp.table("raw_vitals")
     rules = inp.table("critical_rules")
     sitemap = {r["url"] for r in inp.table("raw_sitemap_urls")}
@@ -197,6 +200,18 @@ INDEX_HINTS: dict[str, str] = {
 INDEX_ISSUE_TYPES = frozenset({t for _, t, _ in INDEX_STATES} | {"index_canonical_mismatch", "index_not_indexed"})
 
 
+def crawled_pages(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per URL the crawler (or the header probe) fetched, preferring the parsed HTML row."""
+    best: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        if r.get("status_code") is None:
+            continue
+        cur = best.get(r["url"])
+        if cur is None or (r.get("word_count") is not None and cur.get("word_count") is None):
+            best[r["url"]] = r
+    return list(best.values())
+
+
 def _norm(u: str | None) -> str:
     return (u or "").rstrip("/").lower()
 
@@ -212,6 +227,10 @@ def index_issues(inspections: list[dict[str, Any]], by_url: dict[str, dict[str, 
     for url, r in sorted(latest.items()):
         page = by_url.get(url)
         if not page or not _indexable_html(page) or redact(url) is None:
+            continue
+        # A page whose canonical names another URL asks Google to index that URL instead (korum.worldhire.com
+        # pages canonical to worldhire.com): "not indexed here" is the intended outcome, not an issue.
+        if page.get("canonical") and _norm(urljoin(url, page["canonical"])) != _norm(url):
             continue
         state = r.get("coverage_state") or r.get("verdict") or "unknown"
         crawled = r.get("last_crawl_time") or "never"

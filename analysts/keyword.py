@@ -21,16 +21,19 @@ from rules.indexability import rule_matches
 
 NAME = "keyword"
 
-SYSTEM = """You are the keyword analyst for one web property. For each keyword you receive the search
-volume row, the Search Console pages that already receive impressions for it, and the list of crawled
-urls. Assign: intent (informational, navigational, transactional, commercial), a short cluster label,
-and mapped_url (one of the crawled urls, or null if no page fits). Do not invent volumes or urls. Do not
-use an em dash. Say job seekers, never candidates."""
+SYSTEM = """You are the keyword analyst for one web property. You receive what the project offers and to
+whom, and for each keyword the search volume row, the Search Console pages that already receive impressions
+for it, and the list of crawled urls. Assign: relevant (true only if a person searching this could plausibly
+want what this project offers; false for searches about another company or brand, a person, a different
+meaning of a word, or a market the project does not serve), intent (informational, navigational,
+transactional, commercial), a short cluster label, and mapped_url (one of the crawled urls, or null if no
+page fits). Do not invent volumes or urls. Do not use an em dash. Say job seekers, never candidates."""
 
 
 class _Assign(BaseModel):
     model_config = ConfigDict(extra="forbid")
     keyword: str
+    relevant: bool | None = None
     intent: str | None = None
     cluster: str | None = None
     mapped_url: str | None = None
@@ -75,7 +78,8 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> KeywordReport:
         top = sorted(gsc_pages.get(kw, []), key=lambda x: -x[1])[:3]
         listing.append({"keyword": m["keyword"], "volume": m.get("volume"), "volume_range": [m.get("volume_low"), m.get("volume_high")] if m.get("volume_is_range") else None,
                         "difficulty": m.get("difficulty"), "ai_search_volume": ai_volume.get(kw), "gsc_pages": [p for p, _ in top]})
-    user = json.dumps({"project": inp.project.display_name, "crawled_urls": urls[:200], "keywords": listing}, indent=1)
+    user = json.dumps({"project": inp.project.display_name, "offers": inp.project.description or f"{inp.project.vertical} website",
+                       "crawled_urls": urls[:200], "keywords": listing}, indent=1)
     res = ctx.complete(agent=NAME, system=SYSTEM, user=user, schema=_Assignments, max_tokens=8192)
     by = {a.keyword.lower(): a for a in res.assignments}
     valid_intents = {"informational", "navigational", "transactional", "commercial"}
@@ -88,13 +92,16 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> KeywordReport:
             blocked, mapped = True, None
         if kw in reserved:
             mapped = None
+        relevant = a.relevant if a else None
+        if relevant is False:
+            mapped = None
         out.append(KeywordProposal(
             evidence_ref=m["id"], keyword=m["keyword"],
             intent=(a.intent if a and a.intent in valid_intents else None),
             cluster=(a.cluster if a else None), mapped_url=None if blocked else mapped,
             volume=None if m.get("volume_is_range") else m.get("volume"),
             volume_is_range=bool(m.get("volume_is_range")), volume_low=m.get("volume_low"), volume_high=m.get("volume_high"),
-            blocked_for_index=blocked,
+            blocked_for_index=blocked, relevant=relevant,
             rationale=("reserved by a cross-linked project" if kw in reserved else (a.rationale if a else None)),
         ))
     return KeywordReport(agent="keyword", keywords=out)
