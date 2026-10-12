@@ -3,7 +3,7 @@ display_name: WorldHire
 vertical: recruitment
 domains: [worldhire.com, www.worldhire.com]
 gsc_property: sc-domain:worldhire.com
-ga4_property_id: null
+ga4_property_id: '546390504'   # one GA4 stream for worldhire.com and korum.worldhire.com; the collector filters by host
 credentials_ref: gsc-worldhire-service-account
 github_repo: worldhire/worldhire-web
 cms_publish_url: null
