@@ -7,6 +7,7 @@ Emits: TechnicalReport (issues).
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
@@ -259,18 +260,54 @@ def _depth(url: str) -> int:
     return len([s for s in urlsplit(url).path.split("/") if s])
 
 
+_MISMATCH_RE = re.compile(r"^Google chose (\S+) as canonical instead of (\S+)$")
+
+
+def index_fix(d: Detected) -> tuple[str, str | None]:
+    """Fix text and coding-agent prompt for an index issue, written in code from Google's verdict. Run 5dcff870: the
+    model, asked to fix worldhire.com/sitemap declaring the homepage as canonical, wrote a script setting the
+    canonical to the homepage, which is the bug itself. Only a canonical mismatch is a code change; the other
+    index issues are sitemap and Search Console work, so they carry no prompt and open no PR."""
+    m = _MISMATCH_RE.match(d.evidence or "") if d.issue_type == "index_canonical_mismatch" else None
+    if not m or not d.url:
+        return INDEX_HINTS.get(d.issue_type) or f"Resolve {d.issue_type}: {d.evidence}", None
+    google, declared = m.group(1), m.group(2)
+    path = urlsplit(d.url).path or "/"
+    if _norm(google) == _norm(d.url):
+        fix = (f"The page {d.url} declares {declared} as its canonical, but it has its own content and Google indexes it "
+               f"under its own URL. Make {path} declare itself as canonical ({d.url}).")
+        prompt = (f"In this Next.js codebase the route {path} renders <link rel=\"canonical\" href=\"{declared}\">, pointing at "
+                  f"another page. Find where that canonical comes from: the route's metadata (alternates.canonical in "
+                  f"generateMetadata or an exported metadata object) or a shared layout or default that sets one canonical for "
+                  f"many routes. Make {path} declare its own absolute URL, {d.url}. If a layout sets a single canonical for "
+                  f"every page, change it so each route declares its own URL, and check that no other route's canonical "
+                  f"changes meaning. Do not touch robots.txt, the sitemap or hreflang. Verify by building and reading the "
+                  f"canonical tag in the HTML served for {path}.")
+        return fix, prompt
+    fix = (f"Google treats {d.url} as a duplicate of {google}, not of the declared {declared}. Decide which URL should rank: "
+           f"either make the content of {path} distinct, or point its canonical deliberately at {google}.")
+    return fix, None
+
+
 def run(ctx: AnalystContext, inp: AnalystInput) -> TechnicalReport:
     detected = detect(inp)
     if not detected:
         return TechnicalReport(agent="technical", issues=[])
-    listing = [{"index": i, "issue_type": d.issue_type, "severity": d.severity, "url": d.url, "evidence": d.evidence,
-                **({"meaning": INDEX_HINTS[d.issue_type]} if d.issue_type in INDEX_HINTS else {})}
-               for i, d in enumerate(detected)]
-    user = f"Project: {inp.project.display_name} ({inp.project.vertical}). Issues:\n{json.dumps(listing, indent=1)}"
-    exp = ctx.complete(agent=NAME, system=SYSTEM, user=user, schema=_Explanations, max_tokens=8192)
-    by_index = {e.index: e for e in exp.explanations}
+    # Index issues are explained in code (index_fix); the model explains the rest.
+    listing = [{"index": i, "issue_type": d.issue_type, "severity": d.severity, "url": d.url, "evidence": d.evidence}
+               for i, d in enumerate(detected) if d.issue_type not in INDEX_ISSUE_TYPES]
+    by_index = {}
+    if listing:
+        user = f"Project: {inp.project.display_name} ({inp.project.vertical}). Issues:\n{json.dumps(listing, indent=1)}"
+        exp = ctx.complete(agent=NAME, system=SYSTEM, user=user, schema=_Explanations, max_tokens=8192)
+        by_index = {e.index: e for e in exp.explanations}
     issues = []
     for i, d in enumerate(detected):
+        if d.issue_type in INDEX_ISSUE_TYPES:
+            fix, prompt = index_fix(d)
+            issues.append(IssueOut(evidence_ref=d.evidence_ref, issue_type=d.issue_type, severity=d.severity, url=d.url,
+                                   evidence=d.evidence, recommended_fix=fix, claude_code_prompt=prompt))
+            continue
         e = by_index.get(i)
         issues.append(IssueOut(
             evidence_ref=d.evidence_ref, issue_type=d.issue_type, severity=d.severity, url=d.url, evidence=d.evidence,

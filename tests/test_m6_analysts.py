@@ -407,6 +407,23 @@ def test_index_issues_name_googles_reason_and_skip_pages_meant_to_stay_out(worke
     }, "the noindex login page and the page canonical to worldhire.com are meant to stay out"
 
 
+def test_index_fixes_are_written_in_code_and_point_the_canonical_the_right_way():
+    """Run 5dcff870: worldhire.com/sitemap declared the homepage as canonical and Google kept the page itself. The model
+    wrote a script setting the canonical to the homepage, the bug itself, and queued it as a fix PR."""
+    from analysts.technical import Detected, index_fix
+
+    own = Detected("index_canonical_mismatch", "high", "https://worldhire.com/sitemap",
+                   "Google chose https://worldhire.com/sitemap as canonical instead of https://worldhire.com/", uuid.uuid4())
+    fix, prompt = index_fix(own)
+    assert "declare itself as canonical (https://worldhire.com/sitemap)" in fix
+    assert prompt and "its own absolute URL, https://worldhire.com/sitemap" in prompt and "\u2014" not in prompt
+    dup = Detected("index_canonical_mismatch", "high", "https://worldhire.com/c",
+                   "Google chose https://worldhire.com/a as canonical instead of https://worldhire.com/c", uuid.uuid4())
+    assert index_fix(dup)[1] is None, "which URL should rank is a decision, not a code fix"
+    unknown = Detected("index_unknown_to_google", "medium", "https://worldhire.com/services", "Google: URL is unknown to Google", uuid.uuid4())
+    assert index_fix(unknown)[1] is None
+
+
 def test_keyword_analyst_model_can_differ_from_the_default(monkeypatch):
     """SEO_AGENT_MODELS overrides one agent's model; on OpenAI the keyword analyst defaults to gpt-4.1."""
     from config.settings import _agent_models
