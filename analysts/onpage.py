@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from analysts.base import AnalystContext, AnalystInput
 from contracts.artifacts import OnPageReport, OnPageSuggestion
+from gate.stage1_rules import blocking_brand_hit
 from rules.indexability import indexable_html, rule_matches
 
 NAME = "onpage"
@@ -83,10 +84,14 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> OnPageReport:
     res = ctx.complete(agent=NAME, system=SYSTEM.format(banned=banned), user=json.dumps({"pages": listing}, indent=1), schema=_Suggestions, max_tokens=8192)
     by_url = {c["url"]: c for c in cands}
     fields = {"title", "meta_description", "h1", "structure", "internal_link"}
+    brand_rules = inp.table("brand_rules")
     out = []
     for s in res.suggestions:
         c = by_url.get(s.url)
         if not c or s.field not in fields:
+            continue
+        # Run 5dcff870: one suggestion saying "candidate" made the gate block all 20. Each suggestion stands alone.
+        if blocking_brand_hit(f"{s.suggested}\n{s.rationale}", brand_rules):
             continue
         current = {"title": c["title"], "meta_description": c["meta_description"], "h1": " | ".join(c["h1"])}.get(s.field)
         out.append(OnPageSuggestion(evidence_ref=c["id"], url=s.url, field=s.field, current=current or None, suggested=s.suggested, rationale=s.rationale))

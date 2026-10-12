@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from analysts.base import AnalystContext, AnalystInput
 from config.settings import get_settings
 from contracts.artifacts import OffPageReport, PitchOut
+from gate.stage1_rules import blocking_brand_hit
 from rules.domains import GENERIC_DOMAINS, brand_label, host_of, registrable
 from rules.keywords import brand_tokens, is_branded
 
@@ -88,7 +89,7 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> OffPageReport:
     out = []
     for d in chosen:
         p = by.get(d)
-        if not p or stale_year(f"{p.subject} {p.body}", today.year):
+        if not p or stale_year(f"{p.subject} {p.body}", today.year) or blocking_brand_hit(f"{p.subject}\n{p.body}", inp.table("brand_rules")):
             continue
         out.append(PitchOut(evidence_ref=evidence[d], outlet_url=f"https://{d}/", subject=p.subject, body=p.body))
     return OffPageReport(agent="offpage", pitches=out[:cap])   # the cap is code, not prompt

@@ -149,6 +149,19 @@ def run_stage1(agent: str, artifact: BaseModel | dict[str, Any], rules: ProjectR
 
 # ---------- helpers ----------
 
+def blocking_brand_hit(text: str, brand_rules: list[dict[str, Any]]) -> str | None:
+    """The first block-severity brand rule this copy breaks, matched exactly as step 2 above matches it. Analysts
+    that emit lists of independent items use it to leave out an item the gate would block, so one bad line does
+    not cost the batch; the gate still sweeps everything."""
+    copy = URL_LIKE.sub(" ", text)
+    for rule in brand_rules:
+        if rule.get("active", True) and rule.get("severity") == "block":
+            hit = _brand_hit(rule, copy)
+            if hit:
+                return f"{rule['rule_type']} {rule['pattern']!r} matched {hit!r}"
+    return None
+
+
 def _brand_hit(rule: dict[str, Any], text: str) -> str | None:
     kind, pattern = rule["rule_type"], rule["pattern"]
     if kind == "char_ban":

@@ -14,6 +14,7 @@ from analysts.ecommerce import detect as detect_ecom
 from analysts.keyword import run as run_keyword
 from analysts.offpage import run as run_offpage
 from analysts.onpage import candidates
+from analysts.onpage import run as run_onpage
 from contracts.project import Project
 from db.connection import project_scope
 from llm.fake import FakeLLM
@@ -188,6 +189,24 @@ def test_onpage_candidates_survive_site_wide_rules_and_skip_canonicalised_pages(
         {"url_pattern": r"^/(dashboard|recruiter|admin|api)(/|$)", "assertion": "must_noindex"}]}
     c = candidates(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
     assert [x["url"] for x in c] == ["https://korum.worldhire.com/jobs"] and c[0]["needs"] == ["meta_description"]
+
+
+def test_onpage_leaves_out_a_suggestion_the_brand_gate_would_block(worker_url, seeded):
+    """Run 5dcff870: one of 20 suggestions said "candidate" and the gate blocked all 20."""
+    from gate.stage1_rules import ProjectRules, run_stage1
+
+    project = _project(worker_url, seeded)
+    pages = [{"id": uuid.uuid4(), "url": f"https://korum.worldhire.com/p{i}", "status_code": 200, "word_count": 300, "title": "x",
+              "meta_description": None, "h1": ["P"], "canonical": None} for i in range(2)]
+    brand_rules = [{"rule_type": "banned_phrase", "pattern": r"\bCandidate\b", "severity": "block", "active": True},
+                   {"rule_type": "char_ban", "pattern": "\u2014", "severity": "block", "active": True}]
+    llm = FakeLLM({"onpage": lambda s, u, sc: {"suggestions": [
+        {"url": pages[0]["url"], "field": "title", "suggested": "Senior roles for job seekers, kept private", "rationale": "names the offer"},
+        {"url": pages[1]["url"], "field": "title", "suggested": "Find your next candidate fast", "rationale": "short"}]}})
+    out = run_onpage(AnalystContext(llm=llm, model="fake"),
+                     AnalystInput(project=project, run_id=uuid.uuid4(), rows={"raw_crawl_pages": pages, "keywords": [], "critical_rules": [], "brand_rules": brand_rules}))
+    assert [x.url for x in out.suggestions] == [pages[0]["url"]]
+    assert not run_stage1("onpage", out, ProjectRules(brand_rules=brand_rules, critical_rules=[]), lambda refs: refs).blocked
 
 
 def test_ecommerce_detects_schema_and_price_problems(worker_url, seeded):

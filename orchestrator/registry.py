@@ -62,7 +62,7 @@ register(AgentSpec("ecommerce", "analyst", reads=("raw_crawl_pages", "critical_r
 register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_ai_keyword_metrics", "raw_gsc_performance", "keywords", "critical_rules", "raw_crawl_pages"), llm=True))
 register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "brand_rules", "critical_rules"), llm=True))
 register(AgentSpec("content", "analyst", reads=("keywords", "raw_fetched_documents", "content_briefs", "raw_crawl_pages", "critical_rules"), llm=True))
-register(AgentSpec("offpage", "analyst", reads=("mentions", "raw_serp"), llm=True))
+register(AgentSpec("offpage", "analyst", reads=("mentions", "raw_serp", "brand_rules"), llm=True))
 register(AgentSpec("trend", "analyst", reads=("raw_serp", "mentions", "raw_search_status", "raw_llm_responses"), llm=True))
 register(AgentSpec("report", "analyst", reads=("raw_gsc_performance", "raw_ga4_daily", "issues", "raw_serp", "mentions", "collection_gaps", "runs", "trend_events", "raw_llm_mention_metrics", "raw_llm_mentions", "raw_llm_responses"), llm=True))
 register(AgentSpec("gate_stage1", "gate", reads=("brand_rules", "critical_rules"), writes=("gate_results",)))
