@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from urllib.parse import urljoin
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -40,9 +41,18 @@ class _Suggestions(BaseModel):
     suggestions: list[_Suggestion] = Field(default_factory=list)
 
 
+def _same_url(a: str, b: str) -> bool:
+    return a.rstrip("/").lower() == b.rstrip("/").lower()
+
+
 def candidates(inp: AnalystInput) -> list[dict]:
-    pages = [p for p in inp.table("raw_crawl_pages") if p.get("status_code") == 200 and p.get("title") is not None or p.get("status_code") == 200]
-    protected = [r["url_pattern"] for r in inp.table("critical_rules")] if inp.rows.get("critical_rules") else []
+    # Crawled pages only (inspection rows carry no status code), and only pages that rank under their own URL:
+    # a page whose canonical names another URL passes its signals there, so its title is edited at the target.
+    pages = [p for p in inp.table("raw_crawl_pages") if p.get("status_code") == 200
+             and (not p.get("canonical") or _same_url(urljoin(p["url"], p["canonical"]), p["url"]))]
+    # Pages that must stay out of the index get no suggestions. Other critical rules (a schema type forbidden on
+    # every page, url pattern .*) are not about which pages exist; treating them as protected left korum with none.
+    protected = [r["url_pattern"] for r in inp.table("critical_rules") if r.get("assertion") in ("must_noindex", "must_not_appear_in_sitemap")]
     kw_by_url = {k["mapped_url"]: k["keyword"] for k in inp.table("keywords") if k.get("mapped_url") and not k.get("blocked_for_index")}
     titles = Counter(p.get("title") for p in pages if p.get("title"))
     out = []

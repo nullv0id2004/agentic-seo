@@ -142,9 +142,13 @@ def detect(inp: AnalystInput) -> list[Detected]:
         broken = [link for link in p.get("internal_links") or [] if link in by_url and (by_url[link].get("status_code") or 0) >= 400]
         if broken:
             out.append(Detected("broken_internal_links", "medium", redact(p["url"]), f"{len(broken)} internal link(s) return 4xx/5xx, first: {redact(broken[0]) or '[protected path]'}", p["id"]))
-    titles: Counter[str] = Counter(p["title"] for p in pages if p.get("title") and _indexable_html(p))
-    for p in pages:
-        if _indexable_html(p) and p.get("title") and titles[p["title"]] > 1:
+    # A page canonical to another URL already defers to it (korum.worldhire.com/ to /jobs); sharing its title is fine.
+    def _own_canonical(p: dict) -> bool:
+        return not p.get("canonical") or _norm(urljoin(p["url"], p["canonical"])) == _norm(p["url"])
+    titled = [p for p in pages if p.get("title") and _indexable_html(p) and _own_canonical(p)]
+    titles: Counter[str] = Counter(p["title"] for p in titled)
+    for p in titled:
+        if titles[p["title"]] > 1:
             out.append(Detected("duplicate_title", "medium", redact(p["url"]), f"title {p['title']!r} shared by {titles[p['title']]} pages", p["id"]))
     # low: on-page checks, only for pages that can rank (200, HTML, not noindex by meta or header)
     for p in pages:

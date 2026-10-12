@@ -149,6 +149,26 @@ def test_onpage_candidates_skip_protected_paths(worker_url, seeded):
     assert [x["url"] for x in c] == ["https://korum.worldhire.com/about"] and "title" in c[0]["needs"] and "meta_description" in c[0]["needs"]
 
 
+def test_onpage_candidates_survive_site_wide_rules_and_skip_canonicalised_pages(worker_url, seeded):
+    # Production korum, run 33a9a102: a site-wide "no JobPosting schema" rule (pattern .*) hid every page, so the
+    # analyst never suggested anything. Pages canonical to another URL and inspection rows are not candidates.
+    project = _project(worker_url, seeded)
+    long_meta = "x" * 170
+    rows = {"raw_crawl_pages": [
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/jobs", "status_code": 200, "title": "Find senior jobs | Korum by Worldhire",
+         "meta_description": long_meta, "h1": ["Jobs"], "canonical": "https://korum.worldhire.com/jobs"},
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/jobs", "status_code": None, "title": None, "indexable": True},
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/", "status_code": 200, "title": "Find senior jobs | Korum by Worldhire",
+         "meta_description": long_meta, "h1": ["Jobs"], "canonical": "/jobs"},
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/blog", "status_code": 200, "title": "Blog", "meta_description": None,
+         "h1": [], "canonical": "https://worldhire.com/blog"},
+    ], "keywords": [], "brand_rules": [], "critical_rules": [
+        {"url_pattern": ".*", "assertion": "schema_type_forbidden:JobPosting"},
+        {"url_pattern": r"^/(dashboard|recruiter|admin|api)(/|$)", "assertion": "must_noindex"}]}
+    c = candidates(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
+    assert [x["url"] for x in c] == ["https://korum.worldhire.com/jobs"] and c[0]["needs"] == ["meta_description"]
+
+
 def test_ecommerce_detects_schema_and_price_problems(worker_url, seeded):
     project = _project(worker_url, seeded, "rejuveluxe")
     pid = uuid.uuid4()
@@ -237,8 +257,10 @@ def test_onpage_checks_skip_non_html_and_header_noindex_pages(worker_url, seeded
     from analysts.technical import detect
 
     project = _project(worker_url, seeded, "korum")
-    ids = [uuid.uuid4() for _ in range(4)]
+    ids = [uuid.uuid4() for _ in range(5)]
     rows = {"critical_rules": [], "raw_vitals": [], "raw_sitemap_urls": [], "raw_crawl_pages": [
+        {"id": ids[4], "url": "https://korum.worldhire.com/home", "status_code": 200, "word_count": 800, "title": "KORUM",
+         "h1": ["Hire"], "meta_description": "d", "canonical": "/jobs"},
         {"id": ids[0], "url": "https://korum.worldhire.com/sitemap.xml", "status_code": 200, "word_count": None, "title": None, "h1": []},
         {"id": ids[1], "url": "https://korum.worldhire.com/login", "status_code": 200, "word_count": 12, "title": "KORUM",
          "h1": ["Sign in"], "x_robots_tag": "noindex, nofollow", "robots_meta": "index, follow", "meta_description": None, "canonical": None},
@@ -255,6 +277,7 @@ def test_onpage_checks_skip_non_html_and_header_noindex_pages(worker_url, seeded
     assert ids[1] not in by_ref, "header-noindex page gets no on-page issues"
     assert sorted(by_ref[ids[2]]) == ["duplicate_title"]
     assert sorted(by_ref[ids[3]]) == ["duplicate_title", "thin_content"]
+    assert "duplicate_title" not in by_ref.get(ids[4], []), "a page canonical to another URL may share its title"
 
 
 def test_trend_detect_emits_one_event_per_update(worker_url, seeded):
