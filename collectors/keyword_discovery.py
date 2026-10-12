@@ -20,7 +20,7 @@ from collectors import ratelimit
 from collectors.base import CollectorContext
 from collectors.http import client
 from config.settings import get_settings
-from rules.domains import registrable
+from rules.domains import GENERIC_DOMAINS, registrable
 from rules.keywords import anchor_pattern, brand_tokens, is_branded, topic_words
 
 IDEAS_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live"
@@ -29,9 +29,8 @@ RANKED_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywor
 IDEAS_LIMIT = 300
 COMPETITOR_LIMIT = 200
 COMPETITORS = 3
-# Sites that rank for almost everything; their keyword lists say nothing about a competitor's strategy.
-GENERIC_DOMAINS = frozenset({"youtube.com", "wikipedia.org", "en.wikipedia.org", "reddit.com", "quora.com", "facebook.com",
-                             "instagram.com", "x.com", "twitter.com", "pinterest.com", "medium.com", "amazon.in", "amazon.com"})
+
+
 def competitors_from_serp(rows: list[dict[str, Any]], own: set[str], limit: int = COMPETITORS) -> list[str]:
     """Domains appearing most often in the top 10 of the latest check of each tracked query."""
     latest: dict[str, dict[str, Any]] = {}

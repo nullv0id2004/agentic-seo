@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from analysts.base import AnalystContext, AnalystInput
 from contracts.artifacts import IssueOut, TechnicalReport
-from rules.indexability import evaluate_critical_rules, rule_matches
+from rules.indexability import evaluate_critical_rules, indexable_html, rule_matches
 
 NAME = "technical"
 READS = ("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules", "raw_url_inspection")
@@ -145,14 +145,14 @@ def detect(inp: AnalystInput) -> list[Detected]:
     # A page canonical to another URL already defers to it (korum.worldhire.com/ to /jobs); sharing its title is fine.
     def _own_canonical(p: dict) -> bool:
         return not p.get("canonical") or _norm(urljoin(p["url"], p["canonical"])) == _norm(p["url"])
-    titled = [p for p in pages if p.get("title") and _indexable_html(p) and _own_canonical(p)]
+    titled = [p for p in pages if p.get("title") and indexable_html(p) and _own_canonical(p)]
     titles: Counter[str] = Counter(p["title"] for p in titled)
     for p in titled:
         if titles[p["title"]] > 1:
             out.append(Detected("duplicate_title", "medium", redact(p["url"]), f"title {p['title']!r} shared by {titles[p['title']]} pages", p["id"]))
     # low: on-page checks, only for pages that can rank (200, HTML, not noindex by meta or header)
     for p in pages:
-        if not _indexable_html(p):
+        if not indexable_html(p):
             if p.get("in_sitemap") and p.get("status_code") != 200:
                 out.append(Detected("sitemap_url_not_200", "low", redact(p["url"]), f"sitemap url returned {p.get('status_code')}", p["id"]))
             continue
@@ -230,7 +230,7 @@ def index_issues(inspections: list[dict[str, Any]], by_url: dict[str, dict[str, 
     out: list[Detected] = []
     for url, r in sorted(latest.items()):
         page = by_url.get(url)
-        if not page or not _indexable_html(page) or redact(url) is None:
+        if not page or not indexable_html(page) or redact(url) is None:
             continue
         # A page whose canonical names another URL asks Google to index that URL instead (korum.worldhire.com
         # pages canonical to worldhire.com): "not indexed here" is the intended outcome, not an issue.
@@ -253,15 +253,6 @@ def index_issues(inspections: list[dict[str, Any]], by_url: dict[str, dict[str, 
         match = next(((t, sev) for needle, t, sev in INDEX_STATES if needle in low), ("index_not_indexed", "medium"))
         out.append(Detected(match[0], match[1], url, evidence, r["id"]))
     return out
-
-
-def _indexable_html(p: dict[str, Any]) -> bool:
-    """200, parsed as HTML (the crawler leaves word_count null for non-HTML bodies such as sitemap.xml or
-    security.txt), and not noindex by either the robots meta or the X-Robots-Tag header."""
-    if p.get("status_code") != 200 or p.get("word_count") is None:
-        return False
-    robots = f"{p.get('robots_meta') or ''} {p.get('x_robots_tag') or ''}".lower()
-    return "noindex" not in robots
 
 
 def _depth(url: str) -> int:

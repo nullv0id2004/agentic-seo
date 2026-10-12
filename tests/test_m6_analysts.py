@@ -129,6 +129,25 @@ def test_offpage_never_pitches_own_sites_or_competitors_or_old_data(worker_url, 
     assert [p.outlet_url for p in out.pitches] == ["https://blog.example.in/"], "a pitch offering data from 2023 is dropped"
 
 
+def test_offpage_skips_branded_queries_namesakes_and_sites_that_rank_for_everything(worker_url, seeded):
+    """Run c9c41cef pitched korum.in, korum.app, korum.co.uk and scai.in (the results for "kourm", a misspelling
+    of the brand) plus YouTube and Wikipedia."""
+    project = _project(worker_url, seeded)
+    branded = {"id": uuid.uuid4(), "query": "kourm", "ai_overview_citations": [],
+               "results": [{"rank": i + 1, "domain": d} for i, d in enumerate(["korum.in", "scai.in", "korum.app"])]}
+    topical = {"id": uuid.uuid4(), "query": "anonymous job search", "ai_overview_citations": [{"domain": "en.wikipedia.org"}],
+               "results": [{"rank": i + 1, "domain": d} for i, d in enumerate(["www.youtube.com", "korum.co.uk", "careers.example.org"])]}
+    asked = {}
+
+    def reply(system, user, schema):
+        asked["outlets"] = [o["outlet_domain"] for o in json.loads(user)["outlets"]]
+        return {"pitches": []}
+
+    run_offpage(AnalystContext(llm=FakeLLM({"offpage": reply}), model="fake"),
+                AnalystInput(project=project, run_id=uuid.uuid4(), rows={"raw_serp": [branded, topical], "mentions": []}))
+    assert asked["outlets"] == ["careers.example.org"]
+
+
 def test_offpage_cap_is_enforced_in_code(worker_url, seeded):
     project = _project(worker_url, seeded)
     serp = [{"id": uuid.uuid4(), "query": f"q{i}", "results": [{"rank": 1, "domain": f"outlet{i}.example"}], "ai_overview_citations": []} for i in range(80)]
@@ -142,8 +161,8 @@ def test_offpage_cap_is_enforced_in_code(worker_url, seeded):
 def test_onpage_candidates_skip_protected_paths(worker_url, seeded):
     project = _project(worker_url, seeded)
     rows = {"raw_crawl_pages": [
-        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/about", "status_code": 200, "title": "About", "meta_description": None, "h1": ["About"]},
-        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/recruiter/inbox", "status_code": 200, "title": None, "meta_description": None, "h1": []},
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/about", "status_code": 200, "word_count": 300, "title": "About", "meta_description": None, "h1": ["About"]},
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/recruiter/inbox", "status_code": 200, "word_count": 50, "title": None, "meta_description": None, "h1": []},
     ], "keywords": [], "brand_rules": [], "critical_rules": [{"url_pattern": r"^/(dashboard|recruiter|admin|api)/", "assertion": "must_noindex"}]}
     c = candidates(AnalystInput(project=project, run_id=uuid.uuid4(), rows=rows))
     assert [x["url"] for x in c] == ["https://korum.worldhire.com/about"] and "title" in c[0]["needs"] and "meta_description" in c[0]["needs"]
@@ -155,12 +174,14 @@ def test_onpage_candidates_survive_site_wide_rules_and_skip_canonicalised_pages(
     project = _project(worker_url, seeded)
     long_meta = "x" * 170
     rows = {"raw_crawl_pages": [
-        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/jobs", "status_code": 200, "title": "Find senior jobs | Korum by Worldhire",
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/jobs", "status_code": 200, "word_count": 400, "title": "Find senior jobs | Korum by Worldhire",
          "meta_description": long_meta, "h1": ["Jobs"], "canonical": "https://korum.worldhire.com/jobs"},
         {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/jobs", "status_code": None, "title": None, "indexable": True},
-        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/", "status_code": 200, "title": "Find senior jobs | Korum by Worldhire",
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/sitemap.xml", "status_code": 200, "word_count": None, "title": None, "h1": []},
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/.well-known/security.txt", "status_code": 200, "word_count": None, "title": None},
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/", "status_code": 200, "word_count": 400, "title": "Find senior jobs | Korum by Worldhire",
          "meta_description": long_meta, "h1": ["Jobs"], "canonical": "/jobs"},
-        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/blog", "status_code": 200, "title": "Blog", "meta_description": None,
+        {"id": uuid.uuid4(), "url": "https://korum.worldhire.com/blog", "status_code": 200, "word_count": 400, "title": "Blog", "meta_description": None,
          "h1": [], "canonical": "https://worldhire.com/blog"},
     ], "keywords": [], "brand_rules": [], "critical_rules": [
         {"url_pattern": ".*", "assertion": "schema_type_forbidden:JobPosting"},

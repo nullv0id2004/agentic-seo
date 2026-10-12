@@ -23,6 +23,14 @@ def has_noindex(robots_meta: str | None, x_robots_tag: str | None) -> bool:
     return bool((robots_meta and NOINDEX_RE.search(robots_meta)) or (x_robots_tag and NOINDEX_RE.search(x_robots_tag)))
 
 
+def indexable_html(p: dict) -> bool:
+    """A crawled page that can rank: 200, parsed as HTML (the crawler leaves word_count null for non-HTML
+    bodies such as sitemap.xml or security.txt), and not noindex by either the robots meta or the header."""
+    if p.get("status_code") != 200 or p.get("word_count") is None:
+        return False
+    return not has_noindex(p.get("robots_meta"), p.get("x_robots_tag"))
+
+
 def looks_indexable(status_code: int | None, robots_meta: str | None, x_robots_tag: str | None) -> bool:
     """True when a fetch of this URL returned a page a crawler could index.
 

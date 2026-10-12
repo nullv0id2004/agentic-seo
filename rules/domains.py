@@ -7,6 +7,11 @@ from urllib.parse import urlsplit
 # glassdoor.co.in, amazon.co.uk, example.com.au.
 _SECOND_LEVEL = frozenset({"co", "com", "org", "net", "gov", "ac", "edu", "ltd", "plc", "nic", "res"})
 
+# Sites that rank for almost everything: their keyword lists say nothing about a competitor's strategy, and
+# they are not outlets anyone pitches.
+GENERIC_DOMAINS = frozenset({"youtube.com", "wikipedia.org", "reddit.com", "quora.com", "facebook.com", "instagram.com", "x.com",
+                             "twitter.com", "pinterest.com", "medium.com", "amazon.in", "amazon.com"})
+
 
 def host_of(value: str | None) -> str:
     """Lower-case host of a URL or bare domain, without www. or a port."""

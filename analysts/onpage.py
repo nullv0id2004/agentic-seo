@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from analysts.base import AnalystContext, AnalystInput
 from contracts.artifacts import OnPageReport, OnPageSuggestion
-from rules.indexability import rule_matches
+from rules.indexability import indexable_html, rule_matches
 
 NAME = "onpage"
 MAX_PAGES = 40
@@ -46,9 +46,10 @@ def _same_url(a: str, b: str) -> bool:
 
 
 def candidates(inp: AnalystInput) -> list[dict]:
-    # Crawled pages only (inspection rows carry no status code), and only pages that rank under their own URL:
-    # a page whose canonical names another URL passes its signals there, so its title is edited at the target.
-    pages = [p for p in inp.table("raw_crawl_pages") if p.get("status_code") == 200
+    # Crawled HTML pages that can rank under their own URL. Inspection rows carry no status code; sitemap.xml and
+    # security.txt are not HTML (run c9c41cef suggested a title and an h1 for both); a page whose canonical names
+    # another URL passes its signals there, so its title is edited at the target.
+    pages = [p for p in inp.table("raw_crawl_pages") if indexable_html(p)
              and (not p.get("canonical") or _same_url(urljoin(p["url"], p["canonical"]), p["url"]))]
     # Pages that must stay out of the index get no suggestions. Other critical rules (a schema type forbidden on
     # every page, url pattern .*) are not about which pages exist; treating them as protected left korum with none.

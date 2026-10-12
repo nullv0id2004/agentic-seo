@@ -4,7 +4,9 @@ Outlets are chosen in code: domains that Google cites in AI Overviews or ranks i
 tracked query and that do not already link to the property. Never the property's own registrable domain
 (worldhire.com for korum.worldhire.com) and never a configured competitor: run 33a9a102 drafted pitches to
 worldhire.com, LinkedIn, Glassdoor and foundit. The model writes subject and body; a draft that cites a
-year before last year is dropped (it offered "trends in 2023" in 2026).
+year before last year is dropped (it offered "trends in 2023" in 2026). Search results for a branded query
+("kourm") list other companies with the same name, so those queries are skipped, as are sites that share the
+brand name and sites that rank for everything (run c9c41cef pitched korum.in, korum.app, YouTube, Wikipedia).
 """
 from __future__ import annotations
 
@@ -18,7 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from analysts.base import AnalystContext, AnalystInput
 from config.settings import get_settings
 from contracts.artifacts import OffPageReport, PitchOut
-from rules.domains import host_of, registrable
+from rules.domains import GENERIC_DOMAINS, brand_label, host_of, registrable
+from rules.keywords import brand_tokens, is_branded
 
 NAME = "offpage"
 
@@ -48,21 +51,28 @@ def stale_year(text: str, this_year: int) -> bool:
 def run(ctx: AnalystContext, inp: AnalystInput) -> OffPageReport:
     cap = min(get_settings().pitch_batch_cap, int(inp.params.get("batch_cap", 50)))
     own = {registrable(d) for d in inp.project.domains}
-    excluded = own | {registrable(c) for c in inp.project.competitors}
+    excluded = own | {registrable(c) for c in inp.project.competitors} | GENERIC_DOMAINS
+    brand = brand_tokens(inp.project.display_name or inp.project.slug, list(inp.project.domains), inp.project.brand_context_terms)
     linking = {host_of(m["source_url"]) for m in inp.table("mentions") if m.get("kind") == "link"}
+
+    def eligible(d: str) -> bool:
+        return bool(d) and registrable(d) not in excluded and d not in linking and not is_branded(brand_label(d), brand)
+
     outlets: Counter[str] = Counter()
     evidence: dict[str, object] = {}
     queries: dict[str, set[str]] = {}
     for r in inp.table("raw_serp"):
+        if is_branded(r.get("query") or "", brand):
+            continue
         for c in r.get("ai_overview_citations") or []:
             d = host_of(c.get("domain") or c.get("url"))
-            if d and registrable(d) not in excluded and d not in linking:
+            if eligible(d):
                 outlets[d] += 2
                 evidence.setdefault(d, r["id"])
                 queries.setdefault(d, set()).add(r["query"])
         for x in r.get("results") or []:
             d = host_of(x.get("domain"))
-            if d and registrable(d) not in excluded and d not in linking and (x.get("rank") or 99) <= 10:
+            if eligible(d) and (x.get("rank") or 99) <= 10:
                 outlets[d] += 1
                 evidence.setdefault(d, r["id"])
                 queries.setdefault(d, set()).add(r["query"])
