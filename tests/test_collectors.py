@@ -180,6 +180,28 @@ def test_gsc_collects_page_grain_totals_and_query_grain_keywords(worker_url, see
     assert [r["query"] for r in rows] == [None, None] and sum(r["impressions"] for r in rows) == 5
 
 
+def test_gsc_domain_property_keeps_only_the_project_hosts(worker_url, seeded, monkeypatch):
+    """sc-domain:worldhire.com also returns korum.worldhire.com pages; those belong to the korum project."""
+    import httpx
+
+    import collectors.gsc as gsc
+
+    monkeypatch.setattr(gsc, "access_token", lambda ref, scope: "token")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if "query" in json.loads(request.content)["dimensions"]:
+            return httpx.Response(200, json={"rows": []})
+        return httpx.Response(200, json={"rows": [
+            {"keys": ["2026-10-01", "https://worldhire.com/blog/confidential-job-search"], "clicks": 2, "impressions": 40, "ctr": 0.05, "position": 9.0},
+            {"keys": ["2026-10-01", "https://www.worldhire.com/about-us"], "clicks": 0, "impressions": 5, "ctr": 0, "position": 30.0},
+            {"keys": ["2026-10-01", "https://korum.worldhire.com/jobs"], "clicks": 1, "impressions": 9, "ctr": 0.1, "position": 12.0},
+        ]})
+
+    project = _project(worker_url, seeded, "worldhire")
+    res = collect("gsc_performance", project, uuid.uuid4(), {"_transport": httpx.MockTransport(handle), "start_date": "2026-10-01", "end_date": "2026-10-01"}, db_url=worker_url)
+    assert res.rows_written == 2 and res.detail["other_host_rows_skipped"] == 1
+
+
 def test_ga4_filters_to_the_project_hosts(worker_url, seeded, monkeypatch):
     """Property 546390504 has one stream for worldhire.com and korum.worldhire.com; korum's rows must
     only count korum's hosts."""

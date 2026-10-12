@@ -9,6 +9,7 @@ from collectors.base import CollectorContext
 from collectors.google_auth import GSC_SCOPE, access_token
 from collectors.http import client
 from db.connection import jsonb
+from rules.domains import host_of
 
 API = "https://searchconsole.googleapis.com/webmasters/v3"
 INSPECT_API = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
@@ -32,6 +33,10 @@ def collect_performance(ctx: CollectorContext, params: dict[str, Any]) -> None:
     # (query = null) carries the complete totals; the query grain carries the keywords Google will show.
     grains = (("page", ["date", "page"]), ("query", ["date", "query", "page"]))
     written = {}
+    # A Domain property (sc-domain:worldhire.com) also covers its subdomains, and korum.worldhire.com is its own
+    # project: only this project's hosts are written, so the two never count the same clicks.
+    hosts = {host_of(d) for d in project.domains}
+    skipped = 0
     with client(transport=params.get("_transport"), headers={"Authorization": f"Bearer {token}"}) as http:
         for grain, dims in grains:
             start_row = written[grain] = 0
@@ -48,6 +53,9 @@ def collect_performance(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 rows = r.json().get("rows", [])
                 for row in rows:
                     keys = dict(zip(dims, row["keys"], strict=True))
+                    if host_of(keys["page"]) not in hosts:
+                        skipped += 1
+                        continue
                     ctx.write("raw_gsc_performance", {
                         "date": keys["date"], "query": keys.get("query"), "page": keys["page"], "country": keys.get("country"), "device": keys.get("device"),
                         "clicks": row.get("clicks"), "impressions": row.get("impressions"),
@@ -57,7 +65,8 @@ def collect_performance(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 if len(rows) < ROW_LIMIT:
                     break
                 start_row += ROW_LIMIT
-    ctx.result.detail.update({"start": start.isoformat(), "end": end.isoformat(), "page_rows": written["page"], "query_rows": written["query"]})
+    ctx.result.detail.update({"start": start.isoformat(), "end": end.isoformat(), "page_rows": written["page"], "query_rows": written["query"],
+                              "other_host_rows_skipped": skipped})
 
 
 def collect_inspection(ctx: CollectorContext, params: dict[str, Any]) -> None:
