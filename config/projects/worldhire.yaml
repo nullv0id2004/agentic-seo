@@ -10,7 +10,9 @@ cms_publish_url: null
 approver_id: 00000000-0000-4000-8000-000000000001
 monthly_cost_cap_usd: 50
 monthly_content_cap: 4
-enabled_agents: [technical, keyword, onpage, content, offpage, trend, report]
+# Measure only: the marketing pages and blog are moving to korum.worldhire.com and worldhire.com will 301 there
+# (owner's decision, 2026-10-13). Search Console and GA4 keep showing the traffic move; nothing here suggests edits.
+enabled_agents: [trend, report]
 allowed_schema_types: [Organization, WebSite, Article, FAQPage, BreadcrumbList, JobPosting]
 critical_paths: [/dashboard/, /recruiter/, /admin/]
 critical_rules:
