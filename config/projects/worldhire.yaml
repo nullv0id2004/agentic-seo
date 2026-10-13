@@ -5,7 +5,7 @@ domains: [worldhire.com, www.worldhire.com]
 gsc_property: sc-domain:worldhire.com
 ga4_property_id: '546390504'   # one GA4 stream for worldhire.com and korum.worldhire.com; the collector filters by host
 credentials_ref: gsc-worldhire-service-account
-github_repo: worldhire/worldhire-web
+github_repo: nullv0id2004/Worldhire2.0-1-   # one Next.js app serves worldhire.com and korum.worldhire.com
 cms_publish_url: null
 approver_id: 00000000-0000-4000-8000-000000000001
 monthly_cost_cap_usd: 50
