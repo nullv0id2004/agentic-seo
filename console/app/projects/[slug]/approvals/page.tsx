@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { ProjectShell } from "@/components/shell";
 import { projectBySlug, withProject } from "@/lib/db";
 import { fmtDate, str } from "@/lib/format";
 import { decideApproval } from "./actions";
@@ -20,8 +21,7 @@ export default async function ApprovalsPage({ params }: { params: Promise<{ slug
     decided: await q("select id, action_type, status, summary_plain_english, decided_at, executed_at, reversed_at from approvals where project_id = $1 and status <> 'pending' order by coalesce(decided_at, created_at) desc limit 30"),
   }));
   return (
-    <>
-      <h1>Approvals <span className="muted">{str(project.display_name)}</span></h1>
+    <ProjectShell project={project} active="approvals" group="Work" title="Approvals">
       {!canDecide && <p className="pill critical">This console is not the approver for this project. Read only.</p>}
       <h2>Pending ({data.pending.length})</h2>
       {data.pending.map((a) => (
@@ -69,6 +69,6 @@ export default async function ApprovalsPage({ params }: { params: Promise<{ slug
           ))}
         </tbody>
       </table>
-    </>
+    </ProjectShell>
   );
 }

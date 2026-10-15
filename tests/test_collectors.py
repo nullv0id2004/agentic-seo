@@ -462,17 +462,21 @@ def test_keyword_discovery_writes_ideas_and_topic_filtered_competitor_keywords(w
     project = _project(worker_url, seeded)
     run_id = uuid.uuid4()
     res = collect("keyword_discovery", project.model_copy(update={"competitors": ["www.naukri.com"]}), run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
-    assert not res.partial and res.rows_written == 2 and round(res.cost_usd, 6) == 0.004
+    assert not res.partial and res.rows_written == 3 and round(res.cost_usd, 6) == 0.006
     ranked = [b for p, b in bodies if p.endswith("/ranked_keywords/live")][0]
+    own = [b for p, b in bodies if p.endswith("/ranked_keywords/live")][1]
+    assert own["target"] == "korum.worldhire.com" and "filters" not in own, "the project's own rankings are not topic-filtered"
     assert ranked["target"] == "naukri.com" and ranked["filters"][0][:2] == ["keyword_data.keyword", "regex"]
     assert "confidential" in ranked["filters"][0][2] and "job" not in ranked["filters"][0][2].split("|") and "job" in ranked["filters"][2][2].split("|")
     with project_scope(project.id, url=worker_url) as s:
-        rows = s.fetchall("select keyword, source, competitor, competitor_rank, search_volume, keyword_difficulty, intent from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s order by source", {"run_id": run_id})
+        rows = s.fetchall("select keyword, source, competitor, competitor_rank, search_volume, keyword_difficulty, intent from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s and source <> 'own' order by source", {"run_id": run_id})
+        own_rows = s.fetchall("select competitor, competitor_rank from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s and source = 'own'", {"run_id": run_id})
         from orchestrator.graphs.quarterly_keyword import discovered_keywords
         found = discovered_keywords(s, run_id)
     assert rows[0]["source"] == "competitor" and rows[0]["competitor_rank"] == 2 and rows[0]["keyword_difficulty"] == 60
     assert rows[1] == {"keyword": "job portal india", "source": "idea", "competitor": None, "competitor_rank": None, "search_volume": 9900, "keyword_difficulty": 42, "intent": "commercial"}
     assert found == ["job portal india"], "a competitor's brand search is not an opportunity"
+    assert own_rows == [{"competitor": "korum.worldhire.com", "competitor_rank": 2}]
 
 
 def test_keyword_discovery_needs_configured_competitors(worker_url, seeded):
@@ -480,16 +484,47 @@ def test_keyword_discovery_needs_configured_competitors(worker_url, seeded):
     competitors. Without a configured list the competitor part is skipped and the guesses are only suggested."""
     import httpx
 
-    paths = []
+    ranked_targets = []
 
     def handle(request: httpx.Request) -> httpx.Response:
-        paths.append(request.url.path)
+        if request.url.path.endswith("/ranked_keywords/live"):
+            ranked_targets.append(json.loads(request.content)[0]["target"])
         return httpx.Response(200, json=_dfs_task({"items": []}))
 
     project = _project(worker_url, seeded).model_copy(update={"competitors": []})
     res = collect("keyword_discovery", project, uuid.uuid4(), {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
-    assert all(not p.endswith("/ranked_keywords/live") for p in paths)
+    assert ranked_targets == ["korum.worldhire.com"], "no competitor is looked up; only the project's own rankings"
     assert res.partial and "suggested_competitors" in res.detail
+
+
+def test_backlink_gap_collects_competitor_and_own_referring_domains(worker_url, seeded):
+    """The backlink gap needs who links to each competitor and who links to the project; both are stored raw."""
+    import httpx
+
+    bodies = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)[0]
+        bodies.append(body)
+        if body["target"] == "korum.worldhire.com":
+            return httpx.Response(200, json=_dfs_task({"items": [{"domain": "producthunt.com", "rank": 70, "backlinks": 2}]}))
+        return httpx.Response(200, json=_dfs_task({"items": [
+            {"domain": "www.yourstory.com", "rank": 64, "backlinks": 12, "referring_pages": 9, "backlinks_spam_score": 3,
+             "first_seen": "2021-03-04 10:11:12 +00:00", "lost_date": None},
+            {"domain": "", "rank": 1}]}))
+
+    project = _project(worker_url, seeded).model_copy(update={"competitors": ["www.instahyre.com", "iimjobs.com", "worldhire.com"]})
+    run_id = uuid.uuid4()
+    res = collect("backlink_gap", project, run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
+    assert not res.partial and res.rows_written == 3
+    assert [b["target"] for b in bodies] == ["iimjobs.com", "instahyre.com", "korum.worldhire.com"], \
+        "competitors collapse to their registrable domain; the project's own parent domain is not a competitor"
+    assert bodies[0]["order_by"] == ["rank,desc"] and bodies[0]["rank_scale"] == "one_hundred"
+    with project_scope(project.id, url=worker_url) as s:
+        rows = s.fetchall("select target, role, domain, rank, spam_score, first_seen from raw_referring_domains where project_id = %(project_id)s and run_id = %(run_id)s order by target", {"run_id": run_id})
+    assert [(r["target"], r["role"], r["domain"]) for r in rows] == [
+        ("iimjobs.com", "competitor", "yourstory.com"), ("instahyre.com", "competitor", "yourstory.com"), ("korum.worldhire.com", "own", "producthunt.com")]
+    assert rows[0]["spam_score"] == 3 and rows[0]["first_seen"].year == 2021
 
 
 def test_discovered_keywords_drop_brand_searches(worker_url, seeded):

@@ -10,7 +10,7 @@ pytestmark = [pytest.mark.db, requires_db]
 CONSOLE_READS = (
     "raw_gsc_performance", "raw_ga4_daily", "raw_crawl_pages", "raw_sitemap_urls", "raw_vitals", "raw_serp",
     "raw_keyword_metrics", "raw_search_status", "raw_ai_keyword_metrics", "raw_llm_mention_metrics",
-    "raw_llm_mentions", "raw_llm_responses", "raw_url_inspection", "raw_keyword_ideas", "agent_logs", "audit_log", "mentions", "pitches", "content_briefs",
+    "raw_llm_mentions", "raw_llm_responses", "raw_url_inspection", "raw_keyword_ideas", "raw_referring_domains", "agent_logs", "audit_log", "mentions", "pitches", "content_briefs",
 )
 
 

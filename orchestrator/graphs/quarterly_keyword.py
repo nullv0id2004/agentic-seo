@@ -30,7 +30,7 @@ def discovered_keywords(scope: ProjectScope, run_id: UUID, limit: int = DISCOVER
     rows = scope.fetchall(
         """select keyword, max(search_volume) as volume, array_remove(array_agg(distinct competitor), null) as competitors,
                   bool_or(intent = 'navigational') as navigational
-             from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s
+             from raw_keyword_ideas where project_id = %(project_id)s and run_id = %(run_id)s and source <> 'own'
             group by keyword order by max(search_volume) desc nulls last, keyword""", {"run_id": run_id})
     brands = {brand_label(c) for r in rows for c in (r["competitors"] or [])} | set(extra_brands or [])
     brands = {b for b in brands if len(b) > 2}

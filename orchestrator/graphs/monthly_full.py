@@ -16,6 +16,8 @@ from orchestrator.runtime import Runtime
 
 WORKFLOW = "monthly_full"
 COLLECTORS = ("gsc_performance", "ga4", "site_crawl", "gsc_inspection", "header_probe", "vitals", "serp", "search_status", "backlinks")
+# Competitive research for the console's keyword and backlink gaps; only for a project with configured competitors.
+COMPETITIVE = ("keyword_discovery", "backlink_gap")
 ANALYST_ORDER = ("technical", "ecommerce", "keyword", "onpage", "trend", "offpage", "report")
 
 
@@ -40,6 +42,9 @@ def build(rt: Runtime) -> StateGraph:
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
             if name == "header_probe" and res.detail.get("violations"):
                 crit = res.detail["violations"]
+        for name in (COMPETITIVE if project.competitors else ()):
+            res = rt.run_collector(project, run_id, name, {})
+            out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
         critical.handle_violations(rt, project, run_id, crit, "collector:header_probe")
         critical.clear_halt_if_clean(rt, project, run_id, crit)
         return {"collectors": out, "critical_violations": crit, "params": {**params, "since": start.isoformat(), "until": end.isoformat()}}

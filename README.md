@@ -159,3 +159,14 @@ model tokens.
   places to get listed or quoted.
 - An approver supplies a pitch's recipient in the console (`approvals.approver_input`, migration 0012);
   nothing is sent without one.
+
+## Competitive research (keyword and backlink gap)
+
+- For a project with configured `competitors`, the monthly run also runs `keyword_discovery` and
+  `backlink_gap`. Discovery stores, besides seed ideas and competitors' topic keywords, what the project's own
+  hosts rank for (`raw_keyword_ideas.source = 'own'`, unfiltered). `backlink_gap` stores the strongest referring
+  domains of each competitor and all of the project's own (`raw_referring_domains`, migration 0015).
+- The console's Competitive research page computes both gaps from those raw rows when shown: keywords
+  competitors rank for that the project is missing (2+ competitors), has untapped (1), is weak on (ranks below
+  the best competitor) or strong on; and domains linking to competitors but not to the project, excluding its
+  own links and sites that link to everything. Every table there can be sorted, filtered and exported as CSV.

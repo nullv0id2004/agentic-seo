@@ -54,6 +54,7 @@ for _c, _writes, _reads in [
     ("llm_mentions", ("raw_llm_mention_metrics", "raw_llm_mentions"), ()),
     ("llm_responses", ("raw_llm_responses",), ("keywords",)),
     ("keyword_discovery", ("raw_keyword_ideas",), ("keywords", "raw_serp")),
+    ("backlink_gap", ("raw_referring_domains",), ()),
 ]:
     register(AgentSpec(_c, "collector", reads=_reads, writes=_writes + ("collection_gaps",), network=True))
 

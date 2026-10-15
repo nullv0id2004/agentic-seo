@@ -2,31 +2,63 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { delta } from "@/lib/format";
 
-export const TABS = [
-  ["overview", "Overview"],
-  ["changes", "Changes"],
-  ["search", "Search"],
-  ["traffic", "Traffic"],
-  ["keywords", "Keywords"],
-  ["rankings", "Rankings"],
-  ["technical", "Technical"],
-  ["ai", "AI visibility"],
-  ["content", "Content & outreach"],
-  ["operations", "Operations"],
+/** Navigation, grouped by the job a page does (as in Semrush's toolkits). Order is the reading order. */
+export const NAV = [
+  { group: "Dashboard", items: [["overview", "Overview"]] },
+  { group: "Competitive research", items: [["competitors", "Keyword & backlink gap"]] },
+  { group: "Keyword research", items: [["keywords", "Keywords"], ["rankings", "Rank tracking"]] },
+  { group: "Site health", items: [["technical", "Site audit"]] },
+  { group: "Traffic", items: [["search", "Search Console"], ["traffic", "Analytics (GA4)"]] },
+  { group: "AI visibility", items: [["ai", "AI search"]] },
+  { group: "Content & links", items: [["content", "Content & backlinks"]] },
+  { group: "Work", items: [["changes", "Changes"], ["operations", "Operations"]] },
 ] as const;
-export type TabKey = (typeof TABS)[number][0];
 
-export const RANGES = [7, 28, 90] as const;
+export type TabKey = (typeof NAV)[number]["items"][number][0];
+export const TABS: readonly (readonly [TabKey, string])[] = NAV.flatMap((g) => g.items as readonly (readonly [TabKey, string])[]);
 
-export function Tabs({ slug, active, range }: { slug: string; active: TabKey; range: number }) {
+export function tabLabel(tab: TabKey): string {
+  return TABS.find(([k]) => k === tab)?.[1] ?? tab;
+}
+
+export function groupOf(tab: TabKey): string {
+  return NAV.find((g) => g.items.some(([k]) => k === tab))?.group ?? "";
+}
+
+/** Left-hand navigation: project switcher, then the grouped pages, then the queues that need a decision. */
+export function Sidebar({ slug, active, range, name, others, pending }: {
+  slug: string; active: TabKey | "approvals" | "reports"; range: number; name: string; others: { slug: string; name: string }[]; pending: number;
+}) {
   return (
-    <div className="tabs" role="navigation" aria-label="Project sections">
-      {TABS.map(([key, label]) => (
-        <Link key={key} href={`/projects/${slug}?tab=${key}&range=${range}`} aria-current={key === active ? "page" : undefined}>{label}</Link>
+    <aside className="sidebar" aria-label="Project navigation">
+      <div className="switcher">
+        <span className="label">Project</span>
+        <span className="name">{name}</span>
+        {others.length ? (
+          <span className="others">{others.map((o) => <Link key={o.slug} href={`/projects/${o.slug}?tab=${active === "approvals" || active === "reports" ? "overview" : active}&range=${range}`}>{o.name}</Link>)}</span>
+        ) : null}
+      </div>
+      {NAV.map((g) => (
+        <div key={g.group}>
+          <div className="group">{g.group}</div>
+          {g.items.map(([key, label]) => (
+            <Link key={key} className="item" href={`/projects/${slug}?tab=${key}&range=${range}`} aria-current={key === active ? "page" : undefined}>{label}</Link>
+          ))}
+          {g.group === "Work" ? (
+            <>
+              <Link className="item" href={`/projects/${slug}/approvals`} aria-current={active === "approvals" ? "page" : undefined}>
+                Approvals <span className={`count ${pending ? "" : "zero"}`}>{pending}</span>
+              </Link>
+              <Link className="item" href={`/projects/${slug}/reports`} aria-current={active === "reports" ? "page" : undefined}>Reports</Link>
+            </>
+          ) : null}
+        </div>
       ))}
-    </div>
+    </aside>
   );
 }
+
+export const RANGES = [7, 28, 90] as const;
 
 export function RangeFilter({ slug, tab, range, note }: { slug: string; tab: TabKey; range: number; note?: ReactNode }) {
   return (

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ProjectShell } from "@/components/shell";
 import { Empty } from "@/components/ui";
 import { projectBySlug, withProject } from "@/lib/db";
 import { fmtDate, str, truncate } from "@/lib/format";
@@ -13,10 +14,8 @@ export default async function ReportsPage({ params }: { params: Promise<{ slug: 
   const reports = await withProject(str(project.id), (q) =>
     q("select id, period, created_at, caveats, commentary from reports where project_id = $1 order by created_at desc limit 100"));
   return (
-    <>
-      <p className="small"><Link href={`/projects/${slug}`}>← {str(project.display_name)}</Link></p>
-      <h1>Reports</h1>
-      <p className="muted small">Weekly and monthly reports. Every number in a report comes from raw rows; caveats list the data that was missing.</p>
+    <ProjectShell project={project} active="reports" group="Work" title="Reports">
+      <p className="page-sub">Weekly and monthly reports. Every number in a report comes from raw rows; caveats list the data that was missing.</p>
       <div className="scroll"><table>
         <thead><tr><th>Period</th><th>Summary</th><th>Caveats</th><th>Generated</th></tr></thead>
         <tbody>
@@ -31,6 +30,6 @@ export default async function ReportsPage({ params }: { params: Promise<{ slug: 
           {reports.length === 0 && <Empty cols={4}>No reports yet.</Empty>}
         </tbody>
       </table></div>
-    </>
+    </ProjectShell>
   );
 }

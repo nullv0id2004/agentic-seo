@@ -6,6 +6,7 @@ from uuid import UUID
 
 from collectors import (
     ai_keyword_metrics,
+    backlink_gap,
     backlinks,
     crawl,
     doc_fetch,
@@ -35,6 +36,7 @@ COLLECTORS: dict[str, CollectFn] = {
     "search_status": search_status.collect,
     "keyword_metrics": keyword_metrics.collect,
     "backlinks": backlinks.collect,
+    "backlink_gap": backlink_gap.collect,
     "ai_keyword_metrics": ai_keyword_metrics.collect,
     "llm_mentions": llm_mentions.collect,
     "llm_responses": llm_responses.collect,

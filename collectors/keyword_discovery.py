@@ -9,6 +9,10 @@ Two sources, both written to raw_keyword_ideas exactly as returned:
 Competitor results are restricted, in the API request, to keywords containing one of the project's topic
 words, so a large site such as a social network contributes keywords about this topic, not its whole
 index. Topic words come from the seeds and tracked keywords; nothing here guesses intent.
+
+A third source, 'own', is what the project's own hosts rank for (ranked_keywords with no topic filter; the
+domain goes in `competitor`, the position in `competitor_rank`). It is the other half of the keyword gap the
+console shows: competitor keywords the project is missing, weak on or strong on.
 """
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ from collectors import ratelimit
 from collectors.base import CollectorContext
 from collectors.http import client
 from config.settings import get_settings
-from rules.domains import GENERIC_DOMAINS, registrable
+from rules.domains import GENERIC_DOMAINS, host_of, registrable
 from rules.keywords import anchor_pattern, brand_tokens, is_branded, topic_words
 
 IDEAS_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live"
@@ -28,6 +32,7 @@ RANKED_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywor
 
 IDEAS_LIMIT = 300
 COMPETITOR_LIMIT = 200
+OWN_LIMIT = 1000
 COMPETITORS = 3
 
 
@@ -103,11 +108,12 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
     if not words:
         ctx.gap("no distinctive topic words in the seeds; discovery would return the whole vertical", "all")
-        return
     topic = "|".join(re.escape(w) for w in words)
     anchors = anchor_pattern(project.vertical)
     with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
-        if seeds:
+        # Without topic words, ideas and competitor keywords would be the whole vertical; the project's own
+        # rankings below need no topic and are still collected.
+        if words and seeds:
             body = {"keywords": seeds[:200], "location_code": location, "language_code": language, "limit": int(params.get("ideas_limit", IDEAS_LIMIT)),
                     "filters": [["keyword_info.search_volume", ">", 0], "and", ["keyword", "regex", topic],
                                 *(["and", ["keyword", "regex", anchors]] if anchors else [])], "order_by": ["relevance,desc"]}
@@ -116,9 +122,9 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 kw = (it.get("keyword") or "").lower()
                 if kw:
                     ctx.write("raw_keyword_ideas", {"keyword": kw, "source": "idea", "location_code": location, "language_code": language, **_metrics(it)})
-        else:
+        elif words:
             ctx.gap("no seeds or tracked keywords to expand", "ideas")
-        for comp in competitors:
+        for comp in (competitors if words else []):
             body = {"target": comp, "location_code": location, "language_code": language, "limit": int(params.get("competitor_limit", COMPETITOR_LIMIT)),
                     "item_types": ["organic"],
                     "filters": [["keyword_data.keyword", "regex", topic], "and", ["keyword_data.keyword", "regex", anchors]] if anchors
@@ -134,3 +140,17 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                     ctx.write("raw_keyword_ideas", {
                         "keyword": kw, "source": "competitor", "competitor": comp, "competitor_rank": serp.get("rank_absolute"),
                         "competitor_url": serp.get("url"), "location_code": location, "language_code": language, **_metrics(kd)})
+        if params.get("own", True):
+            for host in sorted({host_of(d) for d in project.domains if d}):
+                body = {"target": host, "location_code": location, "language_code": language, "limit": int(params.get("own_limit", OWN_LIMIT)),
+                        "item_types": ["organic"], "order_by": ["keyword_data.keyword_info.search_volume,desc"]}
+                result = _task(ctx, http, RANKED_API, body, host)
+                for it in (result or {}).get("items") or []:
+                    kd = it.get("keyword_data") or {}
+                    kw = (kd.get("keyword") or "").lower()
+                    el = it.get("ranked_serp_element") or {}
+                    serp = el.get("serp_item") or el
+                    if kw:
+                        ctx.write("raw_keyword_ideas", {
+                            "keyword": kw, "source": "own", "competitor": host, "competitor_rank": serp.get("rank_absolute"),
+                            "competitor_url": serp.get("url"), "location_code": location, "language_code": language, **_metrics(kd)})

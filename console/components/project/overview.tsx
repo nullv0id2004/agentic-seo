@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { LineChart } from "@/components/charts";
+import { ColumnChart, LineChart } from "@/components/charts";
 import { Empty, Section, Status, StatTile } from "@/components/ui";
 import { withProject, type Row } from "@/lib/db";
 import { fmtCompact, fmtDate, fmtDay, fmtInt, fmtPos, fmtUsd, num, str } from "@/lib/format";
-import { GA4_DAILY, GA4_TOTALS, GSC_DAILY, GSC_TOTALS } from "@/lib/sql";
+import { GA4_DAILY, GA4_TOTALS, GSC_DAILY, GSC_TOTALS, ourRank, projectDomains } from "@/lib/sql";
 
 export interface TabProps { projectId: string; slug: string; range: number; project: Row }
 
@@ -40,6 +40,21 @@ export async function OverviewTab({ projectId, slug, range, project }: TabProps)
         (select max(collected_at) from raw_vitals where project_id = $1) as vitals`))[0] ?? {},
     events: await q("select kind, name, source_url, observed_on from trend_events where project_id = $1 order by observed_on desc, last_seen_at desc limit 8"),
     gaps: (await q("select count(*)::int as n from collection_gaps where project_id = $1 and created_at >= now() - interval '7 days'"))[0] ?? {},
+    positions: (await q(`with sp as (select distinct on (lower(query)) lower(query) as k, results from raw_serp
+          where project_id = $1 order by lower(query), collected_at desc),
+        ranks as (select ${ourRank("sp.results", "$2")} as r from sp)
+      select count(*) filter (where r between 1 and 3)::int as top3, count(*) filter (where r between 4 and 10)::int as top10,
+        count(*) filter (where r between 11 and 20)::int as top20, count(*) filter (where r is null or r > 20)::int as beyond,
+        count(*)::int as tracked from ranks`, [projectDomains(project)]))[0] ?? {},
+    gap: (await q(`with lr as (select run_id from raw_keyword_ideas where project_id = $1 and source = 'competitor' order by collected_at desc limit 1),
+        orun as (select run_id from raw_keyword_ideas where project_id = $1 and source = 'own' order by collected_at desc limit 1),
+        comp as (select distinct keyword from raw_keyword_ideas where project_id = $1 and run_id = (select run_id from lr) and source = 'competitor'),
+        mine as (select distinct keyword from raw_keyword_ideas where project_id = $1 and run_id = (select run_id from orun) and source = 'own'),
+        rd as (select run_id from raw_referring_domains where project_id = $1 order by collected_at desc limit 1)
+      select (select count(*) from comp)::int as competitor_keywords, (select count(*) from comp where keyword not in (select keyword from mine))::int as not_ranking,
+        (select count(distinct domain) from raw_referring_domains where project_id = $1 and run_id = (select run_id from rd) and role = 'own')::int as own_domains,
+        (select max(collected_at) from raw_referring_domains where project_id = $1) as links_at,
+        (select max(collected_at) from raw_keyword_ideas where project_id = $1 and run_id = (select run_id from lr)) as keywords_at`))[0] ?? {},
   }));
 
   const gsc = d.gsc;
@@ -54,7 +69,7 @@ export async function OverviewTab({ projectId, slug, range, project }: TabProps)
 
   return (
     <>
-      <div className="kpis">
+      <div className="kpis cols-4">
         <StatTile label="Search clicks" value={fmtCompact(gsc.clicks)} current={gsc.clicks} prev={gscPrev ? gsc.prev_clicks : undefined}
           period={period} trend={series(d.gscDaily, "clicks")} />
         <StatTile label="Search impressions" value={fmtCompact(gsc.impressions)} current={gsc.impressions} prev={gscPrev ? gsc.prev_impressions : undefined}
@@ -76,6 +91,22 @@ export async function OverviewTab({ projectId, slug, range, project }: TabProps)
         Search Console data is final about three days after the day; the window ends on the latest collected day ({str(gsc.end_date) || "none yet"}).
         GA4 ends on {str(ga.end_date) || "none yet"}. Days with no collection show as gaps, not zeros.
       </p>
+
+      <div className="grid-2">
+        <ColumnChart title="Where your tracked keywords rank on Google" note={`${fmtInt(d.positions.tracked)} keywords, latest weekly check`} xLabel="Position"
+          x={["Top 3", "4 to 10", "11 to 20", "Not in top 20"]}
+          series={[{ label: "Keywords", slot: 1, values: [num(d.positions.top3), num(d.positions.top10), num(d.positions.top20), num(d.positions.beyond)] }]} />
+        <Section title="Competitive snapshot" note="Where competitors win and you don't. The full comparison is under Competitive research.">
+          <div className="kpis cols-3">
+            <StatTile label="Keywords competitors rank for" value={fmtInt(d.gap.competitor_keywords)}
+              foot={d.gap.keywords_at ? `in your topic, ${fmtDay(d.gap.keywords_at)}` : "collected by the monthly run"} />
+            <StatTile label="…that you don't rank for" value={fmtInt(d.gap.not_ranking)}
+              foot={<Link href={`/projects/${slug}?tab=competitors&range=${range}`}>Open the keyword gap</Link>} />
+            <StatTile label="Your referring domains" value={d.gap.links_at ? fmtInt(d.gap.own_domains) : "–"}
+              foot={<Link href={`/projects/${slug}?tab=competitors&range=${range}`}>Open the backlink gap</Link>} />
+          </div>
+        </Section>
+      </div>
 
       <div className="grid-2">
         <LineChart title="Search clicks per day" x={x} series={[{ label: "Clicks", slot: 1, values: series(d.gscDaily, "clicks") }]} />
