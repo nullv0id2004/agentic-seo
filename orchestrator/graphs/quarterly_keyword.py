@@ -13,7 +13,7 @@ from orchestrator.gate_runner import analyse_and_gate
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
 from rules.domains import brand_label
-from rules.keywords import brand_tokens, on_topic, topic_words
+from rules.keywords import brand_tokens, is_branded, on_topic, topic_words
 
 WORKFLOW = "quarterly_keyword"
 
@@ -49,6 +49,15 @@ def opportunities(project: Project, proposals: list[dict]) -> list[dict]:
     return [k for k in proposals if not k.get("mapped_url") and not k.get("blocked_for_index")
             and k.get("intent") != "navigational" and k.get("relevant") is True
             and (k["keyword"].lower() in seeds or on_topic(k["keyword"], words, project.vertical))]
+
+
+def mapping_proposals(project: Project, keywords: list[dict]) -> list[dict]:
+    """Analyst mappings worth an approval. Never a brand search or its misspelling: "kourm" and "worldhire" came
+    in from Search Console queries, were mapped by an approved proposal, and their search results (other
+    companies named Korum) then drove pitches to korum.in and korum.co.uk. Removed 2026-10-15."""
+    brand = brand_tokens(project.display_name or project.slug, list(project.domains), project.brand_context_terms)
+    return [k for k in keywords if k.get("mapped_url") and not k.get("blocked_for_index") and k.get("relevant") is not False
+            and not is_branded(k["keyword"], brand)]
 
 
 def keyword_universe(scope: ProjectScope, project: Project, requested: list[str]) -> list[str]:
@@ -104,7 +113,7 @@ def build(rt: Runtime) -> StateGraph:
         run_id = UUID(state["run_id"])
         art = state.get("artifacts", {}).get("keyword") or {}
         queued = list(state.get("approvals", []))
-        proposals = [k for k in art.get("keywords", []) if k.get("mapped_url") and not k.get("blocked_for_index") and k.get("relevant") is not False]
+        proposals = mapping_proposals(project, art.get("keywords", []))
         if proposals:
             with rt.scope(project.id) as s:
                 current = {r["keyword"]: r["mapped_url"] for r in s.fetchall("select keyword, mapped_url from keywords where project_id = %(project_id)s")}

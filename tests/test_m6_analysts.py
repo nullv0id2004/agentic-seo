@@ -424,6 +424,16 @@ def test_index_fixes_are_written_in_code_and_point_the_canonical_the_right_way()
     assert index_fix(unknown)[1] is None
 
 
+def test_brand_searches_are_never_proposed_for_mapping(worker_url, seeded):
+    """"kourm" and "worldhire" were mapped from Search Console queries; their results were namesake companies."""
+    from orchestrator.graphs.quarterly_keyword import mapping_proposals
+
+    project = _project(worker_url, seeded)
+    kws = [{"keyword": k, "mapped_url": "https://korum.worldhire.com/jobs", "relevant": True}
+           for k in ("kourm", "worldhire", "world hire jobs", "confidential job search")]
+    assert [k["keyword"] for k in mapping_proposals(project, kws)] == ["confidential job search"]
+
+
 def test_keyword_analyst_model_can_differ_from_the_default(monkeypatch):
     """SEO_AGENT_MODELS overrides one agent's model; on OpenAI the keyword analyst defaults to gpt-4.1."""
     from config.settings import _agent_models
