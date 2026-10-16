@@ -109,13 +109,9 @@ def run_stage1(agent: str, artifact: BaseModel | dict[str, Any], rules: ProjectR
                 violations.append(Violation("brand", rule["severity"], "$", f"required phrase {rule['pattern']!r} absent"))
 
     # 3. url allowlist
-    protected = [r for r in rules.critical_rules if r.get("active", True) and r["assertion"] in PROTECTED_ASSERTIONS]
     for path, value in _string_leaves(data):
-        for url in URL_LIKE.findall(value):
-            p = path_of(url)
-            for rule in protected:
-                if re.search(rule["url_pattern"], p):
-                    violations.append(Violation("url_allowlist", "block", path, f"{url!r} matches {rule['rule_key']} ({rule['url_pattern']})"))
+        for hit in _protected_hits(value, rules.critical_rules):
+            violations.append(Violation("url_allowlist", "block", path, hit))
 
     # 4. evidence completeness
     cleaned, dropped, refs, missing_paths = _drop_evidence_less(data)
@@ -160,6 +156,23 @@ def blocking_brand_hit(text: str, brand_rules: list[dict[str, Any]]) -> str | No
             if hit:
                 return f"{rule['rule_type']} {rule['pattern']!r} matched {hit!r}"
     return None
+
+
+def protected_url_hit(text: str, critical_rules: list[dict[str, Any]]) -> str | None:
+    """The first URL or path in this text that step 3 would block on, or None. Analysts that pass third-party
+    addresses or titles through (a linking page at /recruiter/...) drop that text instead of losing the artifact."""
+    return next(iter(_protected_hits(text, critical_rules)), None)
+
+
+def _protected_hits(text: str, critical_rules: list[dict[str, Any]]) -> list[str]:
+    protected = [r for r in critical_rules if r.get("active", True) and r["assertion"] in PROTECTED_ASSERTIONS]
+    hits = []
+    for url in URL_LIKE.findall(text):
+        p = path_of(url)
+        for rule in protected:
+            if re.search(rule["url_pattern"], p):
+                hits.append(f"{url!r} matches {rule.get('rule_key')} ({rule['url_pattern']})")
+    return hits
 
 
 def _brand_hit(rule: dict[str, Any], text: str) -> str | None:

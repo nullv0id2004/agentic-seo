@@ -149,6 +149,8 @@ class Prospect(Assertion):
     domain_rank: int | None = None
     spam_score: int | None = None
     approach: str | None = None
+    linking_url: str | None = None       # a page on the site that links to a competitor (raw_link_pages)
+    evidence: str | None = None          # that page's title, quoted as collected
 
 
 class AnchorShare(Assertion):
@@ -202,6 +204,7 @@ class LinkPlanReport(Strict):
     flags: list[LinkFlag] = Field(default_factory=list)
     competitors: list[CompetitorAuthority] = Field(default_factory=list)
     profile_copy: ProfileCopy | None = None
+    prospects_skipped: int = 0           # gap candidates the analyst left out as not real opportunities
 
 
 # ---------- trend ----------

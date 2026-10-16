@@ -515,6 +515,12 @@ def test_backlink_gap_collects_competitor_and_own_referring_domains(worker_url, 
                                                        "referring_domains_nofollow": 30, "backlinks_spam_score": 4, "first_seen": "2019-11-15 12:57:46 +00:00"}))
         if endpoint == "anchors":
             return httpx.Response(200, json=_dfs_task({"items": [{"anchor": " KORUM ", "backlinks": 3, "referring_domains": 2}, {"anchor": None, "backlinks": 1}]}))
+        if endpoint == "backlinks":
+            return httpx.Response(200, json=_dfs_task({"items": [
+                {"domain_from": "www.yourstory.com", "url_from": "https://www.yourstory.com/2025/hiring-platforms", "url_to": "https://iimjobs.com/",
+                 "page_from_title": "The hiring platforms Indian startups use", "anchor": "iimjobs", "dofollow": True,
+                 "domain_from_platform_type": ["news"], "semantic_location": "article", "domain_from_rank": 64, "backlink_spam_score": 2},
+                {"domain_from": "elsewhere.example", "url_from": "https://elsewhere.example/x"}]}))
         if body["target"] == "korum.worldhire.com":
             return httpx.Response(200, json=_dfs_task({"items": [{"domain": "producthunt.com", "rank": 70, "backlinks": 2}]}))
         return httpx.Response(200, json=_dfs_task({"items": [
@@ -525,7 +531,10 @@ def test_backlink_gap_collects_competitor_and_own_referring_domains(worker_url, 
     project = _project(worker_url, seeded).model_copy(update={"competitors": ["www.instahyre.com", "iimjobs.com", "worldhire.com"]})
     run_id = uuid.uuid4()
     res = collect("backlink_gap", project, run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
-    assert res.rows_written == 3 + 2 + 2 and res.gaps == 1, "3 referring domains, 2 summaries (one failed: a gap), 2 anchors"
+    assert res.rows_written == 3 + 2 + 2 + 1 and res.gaps == 1, "3 referring domains, 2 summaries (one failed: a gap), 2 anchors, 1 linking page"
+    assert [b["target"] for b in bodies["backlinks"]] == ["iimjobs.com"], "one call covers a candidate linking to both competitors"
+    assert bodies["backlinks"][0]["filters"] == ["domain_from", "in", ["www.yourstory.com", "yourstory.com"]]
+    assert bodies["backlinks"][0]["mode"] == "one_per_domain"
     assert [b["target"] for b in bodies["referring_domains"]] == ["iimjobs.com", "instahyre.com", "korum.worldhire.com"], \
         "competitors collapse to their registrable domain; the project's own parent domain is not a competitor"
     assert bodies["referring_domains"][0]["order_by"] == ["rank,desc"] and bodies["referring_domains"][0]["rank_scale"] == "one_hundred"
@@ -541,6 +550,10 @@ def test_backlink_gap_collects_competitor_and_own_referring_domains(worker_url, 
     assert [(x["target"], x["role"], x["rank"], x["referring_domains"]) for x in summary] == [("iimjobs.com", "competitor", 41, 120), ("korum.worldhire.com", "own", 41, 120)]
     assert summary[1]["first_seen"].year == 2019 and summary[1]["spam_score"] == 4
     assert [(a["anchor"], a["backlinks"]) for a in anchors] == [("KORUM", 3), ("", 1)]
+    with project_scope(project.id, url=worker_url) as s:
+        page = s.fetchone("select * from raw_link_pages where project_id = %(project_id)s and run_id = %(run_id)s", {"run_id": run_id})
+    assert (page["domain"], page["target"], page["title"], page["platform"], page["semantic_location"], page["dofollow"]) == \
+        ("yourstory.com", "iimjobs.com", "The hiring platforms Indian startups use", ["news"], "article", True), "a domain not asked about is not stored"
 
 
 def test_backlink_gap_without_competitors_still_collects_the_project(worker_url, seeded):

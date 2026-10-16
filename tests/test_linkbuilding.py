@@ -270,6 +270,8 @@ def test_link_plan_workflow_refreshes_the_plan_on_demand(worker_url, seeded):
         endpoint = request.url.path.rsplit("/", 2)[-2]
         if endpoint == "summary":
             result = {"rank": 2 if body["target"] == "korum.worldhire.com" else 70, "referring_domains": 1, "first_seen": "2026-09-01 00:00:00 +00:00"}
+        elif endpoint == "backlinks":
+            result = {"items": [{"domain_from": "yourstory.com", "url_from": "https://yourstory.com/2025/hiring", "page_from_title": "How startups hire"}]}
         elif endpoint == "anchors" or body["target"] == "korum.worldhire.com":
             result = {"items": []}
         else:
@@ -284,7 +286,78 @@ def test_link_plan_workflow_refreshes_the_plan_on_demand(worker_url, seeded):
     assert h.status == "done"
     with project_scope(project.id, url=worker_url) as s:
         plan = s.fetchone("select phase, signals, tactics from link_plans where project_id = %(project_id)s and run_id = %(r)s", {"r": h.id})
-        prospects = s.fetchall("select domain from link_opportunities where project_id = %(project_id)s and kind = 'prospect' and last_run_id = %(r)s order by domain", {"r": h.id})
+        prospects = s.fetchall("select domain, linking_url, linking_title from link_opportunities where project_id = %(project_id)s and kind = 'prospect' and last_run_id = %(r)s order by domain", {"r": h.id})
     assert plan["phase"] == "foundation"
     assert {x["name"] for x in plan["signals"]} >= {"domain_rank", "indexable_pages", "profiles_listed"}
-    assert [p["domain"] for p in prospects] == ["inc42.com", "yourstory.com"]
+    assert [(p["domain"], p["linking_url"], p["linking_title"]) for p in prospects] == [
+        ("inc42.com", None, None), ("yourstory.com", "https://yourstory.com/2025/hiring", "How startups hire")]
+
+
+def test_gap_candidates_drop_spam_and_weak_domains_and_lookups_cover_them_in_few_calls():
+    from rules.links import gap_candidates, lookup_plan
+
+    rows = []
+    for comp in ("naukri.com", "iimjobs.com", "instahyre.com"):
+        rows += [_rd("competitor", comp, "yourstory.com", rank=64, spam=2), _rd("competitor", comp, "jobssforu.in", rank=26, spam=12),
+                 _rd("competitor", comp, "seotrends.pro", rank=8, spam=0)]
+    rows += [_rd("competitor", "naukri.com", "inc42.com", rank=70), _rd("competitor", "iimjobs.com", "blog.inc42.com", rank=40),
+             _rd("competitor", "naukri.com", "peoplematters.in", rank=55), _rd("competitor", "instahyre.com", "peoplematters.in", rank=50)]
+    cands = gap_candidates(rows, excluded={"worldhire.com"}, brand=BRAND)
+    assert [(c.domain, len(c.targets)) for c in cands] == [("yourstory.com", 3), ("inc42.com", 2), ("peoplematters.in", 2)], \
+        "spam above 10 (jobssforu.in) and rank under 20 (seotrends.pro) are left out"
+    assert cands[1].hosts == {"inc42.com", "blog.inc42.com"}
+    plan = lookup_plan(cands, max_calls=6)
+    assert [(t, [c.domain for c in g]) for t, g in plan] == [("naukri.com", ["yourstory.com", "inc42.com", "peoplematters.in"])]
+    assert len(lookup_plan(cands, max_calls=0)) == 0
+
+
+def test_prospects_are_judged_from_the_linking_page_and_skipped_ones_are_left_out():
+    project = _project()
+    home = _home()
+    rds = [_rd("competitor", c, d, rank=40) for c in ("naukri.com", "iimjobs.com") for d in ("yourstory.com", "jobshuntindia.com", "inc42.com", "hrkatha.com")]
+    pages = [
+        {"id": _id(), "domain": "yourstory.com", "target": "naukri.com", "url_from": "https://yourstory.com/2025/hiring", "title": "How startups hire senior talent",
+         "anchor": "naukri", "platform": ["news"], "semantic_location": "article", "dofollow": True, "domain_rank": 64},
+        {"id": _id(), "domain": "yourstory.com", "target": "iimjobs.com", "url_from": "https://yourstory.com/tag/jobs", "title": "Jobs tag",
+         "platform": ["news"], "semantic_location": "footer", "dofollow": False, "domain_rank": 64},
+        {"id": _id(), "domain": "jobshuntindia.com", "target": "naukri.com", "url_from": "https://jobshuntindia.com/latest", "title": "Latest jobs 2026"},
+        {"id": _id(), "domain": "inc42.com", "target": "naukri.com", "url_from": "https://inc42.com/recruiter/list", "title": "See /admin/ tools",
+         "platform": ["blogs"]},
+    ]
+    seen = {}
+
+    def reply(system, user, schema):
+        seen.update(json.loads(user))
+        return {"prospects": [
+            {"domain": "yourstory.com", "category": "news", "approach": "Offer a founder story on confidential senior hiring."},
+            {"domain": "jobshuntindia.com", "category": "skip"},
+            {"domain": "inc42.com", "category": "unknown", "approach": "See https://inc42.com/contribute for guest posts."},
+            {"domain": "hrkatha.com", "category": "Skip", "approach": "x"}]}
+
+    crit = [{"rule_key": "no_indexable_auth_route", "url_pattern": "^/(dashboard|recruiter|admin|api)(/|$)", "assertion": "must_noindex", "active": True}]
+    out = run_linkbuilding(AnalystContext(llm=FakeLLM({"linkbuilding": reply}), model="fake"),
+                           AnalystInput(project=project, run_id=_id(), params={"today": TODAY.isoformat()},
+                                        rows={"raw_referring_domains": rds, "raw_link_pages": pages, "raw_crawl_pages": [home], "critical_rules": crit}))
+    sent = {p["domain"]: p for p in seen["prospects"]}
+    assert sent["yourstory.com"]["linking_page"]["title"] == "How startups hire senior talent", "the followed in-article link is the one shown"
+    assert sent["hrkatha.com"]["linking_page"] is None
+    by = {p.url: p for p in out.prospects}
+    assert set(by) == {"https://yourstory.com/", "https://inc42.com/"} and out.prospects_skipped == 2
+    assert by["https://yourstory.com/"].linking_url == "https://yourstory.com/2025/hiring" and by["https://yourstory.com/"].evidence.startswith("How startups")
+    inc = by["https://inc42.com/"]
+    assert inc.linking_url is None and inc.evidence is None, "a page address or title on a protected path would block the plan, so it is dropped"
+    assert inc.category == "blog", "no usable label from the model: DataForSEO's platform type"
+    assert inc.approach is None, "an approach with a web address is dropped"
+
+
+def test_a_site_with_no_links_on_record_is_foundation_and_every_big_competitor_is_aspirational():
+    project = _project()
+    own = {"id": _id(), "role": "own", "target": "korum.worldhire.com", "rank": None, "referring_domains": None, "backlinks": None}
+    comps = [{"id": _id(), "role": "competitor", "target": "naukri.com", "rank": 71, "referring_domains": 23272},
+             {"id": _id(), "role": "competitor", "target": "tiny.example", "rank": 12, "referring_domains": 40}]
+    out = run_linkbuilding(AnalystContext(llm=FakeLLM({}), model="fake"),
+                           AnalystInput(project=project, run_id=_id(), params={"today": TODAY.isoformat()}, rows={"raw_backlink_summary": [own, *comps]}))
+    sig = {s.name: s for s in out.signals}
+    assert sig["domain_rank"].value is None and sig["domain_rank"].points_to == "foundation" and "no links" in sig["domain_rank"].detail
+    assert out.phase == "foundation"
+    assert {c.url: c.tier for c in out.competitors} == {"https://naukri.com/": "aspirational", "https://tiny.example/": "realistic"}

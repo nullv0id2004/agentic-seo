@@ -185,12 +185,18 @@ built from the project's own rows. It never drafts outreach and nothing it produ
   domain, kind `profile` / `directory` / `review`, priority, note). A profile is done when the site's Organization
   schema lists it in `sameAs`; a directory or review site is done when it lists or links to the site.
 - Computed in code: the authority phase (foundation, growth, authority: the lower median of domain rank, age of the
-  first link, indexable pages and listings done), the three tactics that fit it, gap prospects (sites linking to two
-  or more competitors and not to the project, without spam, namesakes, generic platforms or the competitors), anchor
+  first link, indexable pages and listings done; a site DataForSEO knows no links to counts as foundation), the three
+  tactics that fit it, gap prospects (`rules/links.py`: sites linking to two or more competitors and not to the
+  project, spam score at most 10, domain rank at least 20, no namesakes, generic platforms or competitors), anchor
   shares against natural ranges (exact match above 5% is flagged), and new referring domains per month (50 or more
   in a month is flagged).
-- The model only labels each prospect (directory, resource page, blog, news, forum) with one line on how to earn the
-  link, and drafts 50, 150 and 300 word profile descriptions from the project description and homepage. Text with a
-  number it was not given, a missing brand name, over-length copy or a blocking brand rule is dropped.
+- For the strongest 80 gap candidates `backlink_gap` stores one page on each that links to a competitor
+  (`raw_link_pages`, migration 0017: address, title, anchor, platform type, place on the page), grouped by competitor
+  so at most six `backlinks/backlinks/live` calls cover them.
+- The model labels each prospect from that page (directory, resource page, blog, news, forum) with one line on how to
+  earn the link, or skips it as not a real opportunity (job-listing scrapers, spam, unrelated sites); and drafts 50,
+  150 and 300 word profile descriptions from the project description and homepage. Text with a number it was not
+  given, a web address, a missing brand name, over-length copy, a blocking brand rule or a protected path is dropped;
+  so is a third-party page address or title on a protected path.
 - Stored in `link_plans` (one per run) and `link_opportunities` (one per domain across runs; a prospect that starts
   linking to the project becomes `won`). The console's Link building page shows both.

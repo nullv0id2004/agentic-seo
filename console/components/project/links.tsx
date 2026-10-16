@@ -2,7 +2,7 @@ import { ColumnChart } from "@/components/charts";
 import { DataTable, type DRow } from "@/components/datatable";
 import { Section, StatTile, Status } from "@/components/ui";
 import { withProject, type Row } from "@/lib/db";
-import { fmtDay, fmtInt, num, str } from "@/lib/format";
+import { fmtDay, fmtInt, num, str, truncate } from "@/lib/format";
 import type { TabProps } from "./overview";
 
 type Phase = "foundation" | "growth" | "authority";
@@ -46,7 +46,7 @@ export async function LinksTab({ projectId, project }: TabProps) {
       plan,
       // checklist in the config's priority order; prospects as the analyst ranks them: quick-win types first, then reach
       opps: await q(`select o.kind, o.domain, o.title, o.category, o.status, o.in_same_as, o.links_to_you, o.competitors, o.competitor_domains, o.rank,
-          o.spam_score, o.action, o.first_seen_at, o.done_at
+          o.spam_score, o.action, o.linking_url, o.linking_title, o.first_seen_at, o.done_at
         from link_opportunities o left join link_targets t on t.project_id = o.project_id and t.domain = o.domain
         where o.project_id = $1 and (o.last_run_id = $2 or o.status = 'won')
         order by o.status = 'won', coalesce(t.priority, 100),
@@ -103,15 +103,18 @@ export async function LinksTab({ projectId, project }: TabProps) {
       cells: [
         <a key="d" href={`https://${str(o.domain)}/`} target="_blank" rel="noreferrer">{str(o.domain)}</a>,
         <span key="c">{CATEGORY[str(o.category)] ?? <span className="muted">–</span>}</span>,
+        o.linking_url ? (
+          <span key="p" className="small"><a href={str(o.linking_url)} target="_blank" rel="noreferrer nofollow">{truncate(o.linking_title || str(o.linking_url).replace(/^https?:\/\//, ""), 80)}</a></span>
+        ) : <span key="p" className="muted">–</span>,
         <span key="n" title={comp.join(", ")}>{fmtInt(o.competitors)}</span>,
-        <span key="l" className="small muted">{comp.slice(0, 4).join(", ")}{comp.length > 4 ? ` +${comp.length - 4}` : ""}</span>,
         fmtInt(o.rank), fmtInt(o.spam_score),
         <span key="a" className="small">{o.action ? str(o.action) : <span className="muted">–</span>}</span>,
         <Status key="s" value={o.status} />,
       ],
-      values: [str(o.domain), CATEGORY[str(o.category)] ?? "", num(o.competitors), comp.join(" "), num(o.rank), num(o.spam_score), str(o.action), str(o.status)],
+      values: [str(o.domain), CATEGORY[str(o.category)] ?? "", str(o.linking_title ?? o.linking_url ?? ""), num(o.competitors), num(o.rank), num(o.spam_score), str(o.action), str(o.status)],
     };
   });
+  const skipped = Number(plan.prospects_skipped ?? 0);
   const categories = Array.from(new Set(prospects.filter((o) => o.status !== "won").map((o) => str(o.category ?? "unsorted"))));
 
   return (
@@ -176,9 +179,10 @@ export async function LinksTab({ projectId, project }: TabProps) {
         </Section>
       ) : null}
 
-      <Section title="Prospects from the backlink gap" note="Sites that link to two or more competitors but not to you, strongest first within each type. Spam, namesakes, the competitors themselves and sites that link to everything are left out. Directories and listings are the quick wins; no outreach emails are drafted.">
-        <DataTable columns={[{ label: "Site" }, { label: "Type" }, { label: "Competitors", num: true, title: "how many competitors this site links to" },
-          { label: "Links to", sort: false }, { label: "Domain rank", num: true }, { label: "Spam", num: true, title: "DataForSEO spam score, 0 to 100" },
+      <Section title="Prospects from the backlink gap" note={`Sites that link to two or more competitors but not to you, strongest first within each type, each with the page on it that links to a competitor. Spam (score above 10), weak domains (rank under 20), namesakes, the competitors themselves and sites that link to everything are left out${skipped ? `, and ${fmtInt(skipped)} more were judged not real opportunities (job-listing scrapers, spam or unrelated sites)` : ""}. Directories and listings are the quick wins; no outreach emails are drafted.`}>
+        <DataTable columns={[{ label: "Site" }, { label: "Type" }, { label: "Linking page", sort: false, title: "a page on this site that links to a competitor" },
+          { label: "Competitors", num: true, title: "how many competitors this site links to" },
+          { label: "Domain rank", num: true }, { label: "Spam", num: true, title: "DataForSEO spam score, 0 to 100" },
           { label: "How to earn it", sort: false }, { label: "Status" }]}
           rows={prospectRows} facets={[...categories.map((c) => ({ key: c, label: CATEGORY[c] ?? "Not sorted" })), ...(won ? [{ key: "won", label: "Won" }] : [])]}
           filename="link-prospects" searchLabel="Filter sites" empty="No prospects: no site links to two or more competitors without linking to you." />

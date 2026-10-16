@@ -54,7 +54,7 @@ for _c, _writes, _reads in [
     ("llm_mentions", ("raw_llm_mention_metrics", "raw_llm_mentions"), ()),
     ("llm_responses", ("raw_llm_responses",), ("keywords",)),
     ("keyword_discovery", ("raw_keyword_ideas",), ("keywords", "raw_serp")),
-    ("backlink_gap", ("raw_referring_domains",), ()),
+    ("backlink_gap", ("raw_referring_domains", "raw_backlink_summary", "raw_anchors", "raw_link_pages"), ()),
 ]:
     register(AgentSpec(_c, "collector", reads=_reads, writes=_writes + ("collection_gaps",), network=True))
 
@@ -64,7 +64,7 @@ register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_ai_k
 register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "brand_rules", "critical_rules"), llm=True))
 register(AgentSpec("content", "analyst", reads=("keywords", "raw_fetched_documents", "content_briefs", "raw_crawl_pages", "critical_rules"), llm=True))
 register(AgentSpec("offpage", "analyst", reads=("mentions", "raw_serp", "brand_rules"), llm=True))
-register(AgentSpec("linkbuilding", "analyst", reads=("raw_backlink_summary", "raw_referring_domains", "raw_anchors", "raw_crawl_pages", "link_targets", "keywords", "brand_rules"), llm=True))
+register(AgentSpec("linkbuilding", "analyst", reads=("raw_backlink_summary", "raw_referring_domains", "raw_anchors", "raw_link_pages", "raw_crawl_pages", "link_targets", "keywords", "brand_rules", "critical_rules"), llm=True))
 register(AgentSpec("trend", "analyst", reads=("raw_serp", "mentions", "raw_search_status", "raw_llm_responses"), llm=True))
 register(AgentSpec("report", "analyst", reads=("raw_gsc_performance", "raw_ga4_daily", "issues", "raw_serp", "mentions", "collection_gaps", "runs", "trend_events", "raw_llm_mention_metrics", "raw_llm_mentions", "raw_llm_responses"), llm=True))
 register(AgentSpec("gate_stage1", "gate", reads=("brand_rules", "critical_rules"), writes=("gate_results",)))
