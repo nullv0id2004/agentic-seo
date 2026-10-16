@@ -21,7 +21,7 @@ def load_all_project_configs(directory: Path = PROJECTS_DIR) -> list[ProjectConf
 
 
 def seed_projects(url: str, configs: list[ProjectConfig] | None = None) -> dict[str, UUID]:
-    """Upsert projects and replace their rule sets. Returns slug -> project id.
+    """Upsert projects and replace their rule sets and link targets. Returns slug -> project id.
 
     Uses a plain connection as the migration owner: seeding is an operator action, not a run.
     """
@@ -74,6 +74,12 @@ def seed_projects(url: str, configs: list[ProjectConfig] | None = None) -> dict[
                 conn.execute(
                     "insert into critical_rules (project_id, rule_key, url_pattern, assertion, active) values (%s,%s,%s,%s,%s)",
                     (pid, c.rule_key, c.url_pattern, c.assertion, c.active),
+                )
+            conn.execute("delete from link_targets where project_id = %s", (pid,))
+            for t in cfg.link_targets:
+                conn.execute(
+                    "insert into link_targets (project_id, platform, domain, kind, priority, note, active) values (%s,%s,%s,%s,%s,%s,%s)",
+                    (pid, t.platform, t.domain, t.kind, t.priority, t.note, t.active),
                 )
         conn.commit()
     return ids

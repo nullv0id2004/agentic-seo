@@ -10,7 +10,7 @@ cms_publish_url: null
 approver_id: 93a8539c-c38d-427a-86af-150fbdb5539a
 monthly_cost_cap_usd: 50
 monthly_content_cap: 4
-enabled_agents: [technical, keyword, onpage, content, offpage, trend, report]
+enabled_agents: [technical, keyword, onpage, content, offpage, trend, linkbuilding, report]
 allowed_schema_types: [Organization, WebSite, Article, FAQPage, BreadcrumbList]
 critical_paths: [/dashboard, /dashboard/, /recruiter, /recruiter/, /recruiter/inbox, /recruiter/jobs, /admin, /admin/, /api/health]
 critical_rules:
@@ -41,3 +41,24 @@ brand_context_terms: [WorldHire, job, hiring, recruit, employer, job seeker]
 # Job platforms KORUM competes with in India. Keyword discovery reads what they rank for; pitches never go to them.
 competitors: [naukri.com, linkedin.com, indeed.com, foundit.in, glassdoor.co.in, apna.co, instahyre.com, iimjobs.com, hirist.tech, cutshort.io, shine.com, wellfound.com]
 cross_link_exclusions: [worldhire]
+# Where KORUM should have a presence, one name everywhere. A profile is done when the site's Organization schema
+# lists it in sameAs; a directory or review site is done when it lists or links to the site. Lower priority first.
+link_targets:
+  - {platform: LinkedIn, domain: linkedin.com, kind: profile, priority: 10}
+  - {platform: Crunchbase, domain: crunchbase.com, kind: profile, priority: 20}
+  - {platform: Wellfound, domain: wellfound.com, kind: profile, priority: 30}
+  - {platform: Product Hunt, domain: producthunt.com, kind: profile, priority: 40}
+  - {platform: X, domain: x.com, kind: profile, priority: 50}
+  - {platform: YouTube, domain: youtube.com, kind: profile, priority: 60}
+  - {platform: Instagram, domain: instagram.com, kind: profile, priority: 70}
+  - {platform: Facebook, domain: facebook.com, kind: profile, priority: 80}
+  - {platform: Medium, domain: medium.com, kind: profile, priority: 90}
+  - {platform: Wikidata, domain: wikidata.org, kind: profile, priority: 100, note: 'Only once KORUM has independent press coverage; Wikidata removes entries for organisations that are not notable.'}
+  - {platform: G2, domain: g2.com, kind: review, priority: 20}
+  - {platform: Capterra, domain: capterra.com, kind: review, priority: 30}
+  - {platform: AmbitionBox, domain: ambitionbox.com, kind: review, priority: 40}
+  - {platform: SaaSworthy, domain: saasworthy.com, kind: directory, priority: 50}
+  - {platform: AlternativeTo, domain: alternativeto.net, kind: directory, priority: 60}
+  - {platform: Trustpilot, domain: trustpilot.com, kind: review, priority: 60}
+  - {platform: Tracxn, domain: tracxn.com, kind: directory, priority: 70}
+  - {platform: Startup India, domain: startupindia.gov.in, kind: directory, priority: 80, note: 'The listing needs DPIIT recognition first.'}

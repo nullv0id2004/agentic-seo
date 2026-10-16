@@ -170,3 +170,26 @@ model tokens.
   competitors rank for that the project is missing (2+ competitors), has untapped (1), is weak on (ranks below
   the best competitor) or strong on; and domains linking to competitors but not to the project, excluding its
   own links and sites that link to everything. Every table there can be sorted, filtered and exported as CSV.
+
+## Link building
+
+The `linkbuilding` analyst (monthly, when it is in `enabled_agents`) turns a link-building playbook into a plan
+built from the project's own rows. It never drafts outreach and nothing it produces needs an approval: it is advice.
+
+- Data: `backlink_gap` also stores one authority summary per target (`raw_backlink_summary`: domain rank, referring
+  domains, when the first link was seen) and the anchors of links to the project (`raw_anchors`), from DataForSEO
+  `backlinks/summary/live` and `backlinks/anchors/live` (migration 0016). It runs for a project without competitors
+  too when `linkbuilding` is enabled, so the plan always has the project's own links.
+- The checklist is rows: `link_targets`, seeded from `link_targets:` in `config/projects/<slug>.yaml` (platform,
+  domain, kind `profile` / `directory` / `review`, priority, note). A profile is done when the site's Organization
+  schema lists it in `sameAs`; a directory or review site is done when it lists or links to the site.
+- Computed in code: the authority phase (foundation, growth, authority: the lower median of domain rank, age of the
+  first link, indexable pages and listings done), the three tactics that fit it, gap prospects (sites linking to two
+  or more competitors and not to the project, without spam, namesakes, generic platforms or the competitors), anchor
+  shares against natural ranges (exact match above 5% is flagged), and new referring domains per month (50 or more
+  in a month is flagged).
+- The model only labels each prospect (directory, resource page, blog, news, forum) with one line on how to earn the
+  link, and drafts 50, 150 and 300 word profile descriptions from the project description and homepage. Text with a
+  number it was not given, a missing brand name, over-length copy or a blocking brand rule is dropped.
+- Stored in `link_plans` (one per run) and `link_opportunities` (one per domain across runs; a prospect that starts
+  linking to the project becomes `won`). The console's Link building page shows both.

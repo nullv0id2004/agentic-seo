@@ -149,8 +149,63 @@ def write_pitches(scope: ProjectScope, run_id: UUID, artifact: dict[str, Any]) -
     }) for p in artifact.get("pitches", [])]
 
 
+def _domain(url: str) -> str:
+    return url.removeprefix("https://").removeprefix("http://").split("/", 1)[0]
+
+
+def write_link_plan(scope: ProjectScope, run_id: UUID, artifact: dict[str, Any]) -> list[UUID]:
+    """One link_plans row per run, and one link_opportunities row per (project, kind, domain) across runs. An item
+    keeps its id and first run and takes the latest state; done_at is set when it turns done and cleared if it
+    reopens. A prospect from an earlier run that now links to the project becomes 'won'. Returns the plan id first."""
+    plan_id = scope.insert("link_plans", {
+        "run_id": run_id, "phase": artifact.get("phase"), "signals": jsonb(artifact.get("signals", [])), "tactics": jsonb(artifact.get("tactics", [])),
+        "velocity": jsonb(artifact["velocity"]) if artifact.get("velocity") else None, "anchors": jsonb(artifact.get("anchors", [])),
+        "flags": jsonb(artifact.get("flags", [])), "competitors": jsonb(artifact.get("competitors", [])),
+        "profile_copy": jsonb(artifact["profile_copy"]) if artifact.get("profile_copy") else None,
+    })
+    ids: list[UUID] = [plan_id]
+    rows = [{"kind": c["kind"], "domain": _domain(c["url"]), "title": c["platform"], "category": None, "status": c["status"],
+             "in_same_as": c["in_same_as"], "links_to_you": c["links_to_you"], "competitors": None, "competitor_domains": None,
+             "rank": None, "spam_score": None, "action": c["action"], "evidence_ref": c.get("evidence_ref")} for c in artifact.get("checklist", [])]
+    rows += [{"kind": "prospect", "domain": _domain(p["url"]), "title": _domain(p["url"]), "category": p.get("category"), "status": "todo",
+              "in_same_as": None, "links_to_you": False, "competitors": p["competitors"], "competitor_domains": [_domain(u) for u in p["competitor_urls"]],
+              "rank": p.get("domain_rank"), "spam_score": p.get("spam_score"), "action": p.get("approach"), "evidence_ref": p.get("evidence_ref")}
+             for p in artifact.get("prospects", [])]
+    for r in rows:
+        fp = hashlib.sha256(f"{r['kind']}|{r['domain']}".encode()).hexdigest()
+        row = scope.fetchone(
+            """insert into link_opportunities (project_id, run_id, last_run_id, fingerprint, kind, domain, title, category, status, in_same_as,
+                                               links_to_you, competitors, competitor_domains, rank, spam_score, action, evidence_ref, done_at)
+               values (%(project_id)s, %(run_id)s, %(run_id)s, %(fp)s, %(kind)s, %(domain)s, %(title)s, %(category)s, %(status)s, %(in_same_as)s,
+                       %(links_to_you)s, %(competitors)s, %(competitor_domains)s, %(rank)s, %(spam_score)s, %(action)s, %(evidence_ref)s,
+                       case when %(status)s = 'todo' then null else now() end)
+               on conflict (project_id, fingerprint) do update set
+                 last_run_id = excluded.last_run_id, last_seen_at = now(), title = excluded.title,
+                 category = coalesce(excluded.category, link_opportunities.category), status = excluded.status,
+                 in_same_as = excluded.in_same_as, links_to_you = excluded.links_to_you, competitors = excluded.competitors,
+                 competitor_domains = excluded.competitor_domains, rank = excluded.rank, spam_score = excluded.spam_score,
+                 action = coalesce(excluded.action, link_opportunities.action), evidence_ref = excluded.evidence_ref,
+                 done_at = case when excluded.status = 'todo' then null else coalesce(link_opportunities.done_at, now()) end
+               returning id""",
+            {"run_id": run_id, "fp": fp, **r})
+        ids.append(row["id"])
+    linking = [r["domain"] for r in scope.fetchall(
+        "select distinct domain from raw_referring_domains where project_id = %(project_id)s and run_id = %(run_id)s and role = 'own' and lost_date is null",
+        {"run_id": run_id})]
+    if linking:
+        cur = scope.execute(
+            """update link_opportunities set status = 'won', done_at = now(), links_to_you = true, last_seen_at = now()
+                where project_id = %(project_id)s and kind = 'prospect' and status = 'todo' and last_run_id <> %(run_id)s
+                  and exists (select 1 from unnest(%(linking)s::text[]) d where d = domain or d like '%%.' || domain)""",
+            {"run_id": run_id, "linking": linking})
+        if cur.rowcount:
+            scope.audit("orchestrator", "link_prospects_won", {"count": cur.rowcount}, run_id)
+    return ids
+
+
 PERSISTERS = {"technical": write_issues, "ecommerce": write_issues, "trend": write_trend_events, "report": write_report,
-              "keyword": write_keywords, "onpage": write_onpage, "content": write_brief, "offpage": write_pitches}
+              "keyword": write_keywords, "onpage": write_onpage, "content": write_brief, "offpage": write_pitches,
+              "linkbuilding": write_link_plan}
 
 
 def analyse_and_gate(rt: Runtime, project, run_id: UUID, agent: str, params: dict[str, Any] | None = None) -> dict[str, Any]:

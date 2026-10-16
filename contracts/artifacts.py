@@ -109,6 +109,101 @@ class OffPageReport(Strict):
     pitches: list[PitchOut]
 
 
+# ---------- linkbuilding ----------
+
+LinkPhase = Literal["foundation", "growth", "authority"]
+
+
+class PhaseSignal(Assertion):
+    name: Literal["domain_rank", "site_age_years", "indexable_pages", "profiles_listed", "referring_domains"]
+    value: float | None = None
+    points_to: LinkPhase | None = None      # None: shown for context, not counted
+    detail: str
+
+
+class TacticOut(Assertion):
+    slug: str
+    name: str
+    why: str
+    first_action: str
+    effort: str          # playbook guidance, not a measurement
+    typical: str         # playbook guidance, not a measurement
+
+
+class ChecklistItem(Assertion):
+    kind: Literal["profile", "directory", "review"]
+    platform: str
+    url: str             # https://<domain>/
+    status: Literal["todo", "done"]
+    in_same_as: bool
+    links_to_you: bool
+    priority: int = 100
+    action: str
+
+
+class Prospect(Assertion):
+    url: str             # https://<domain>/ of a site linking to competitors but not to the project
+    category: Literal["directory", "resource_page", "blog", "news", "forum", "other"] | None = None
+    competitors: int
+    competitor_urls: list[str]
+    domain_rank: int | None = None
+    spam_score: int | None = None
+    approach: str | None = None
+
+
+class AnchorShare(Assertion):
+    bucket: Literal["branded", "naked_url", "generic", "partial_match", "exact_match", "other"]
+    backlinks: int
+    share_pct: float
+    safe_range: str | None = None
+    within: bool | None = None           # None: too few links to judge, or no range for this bucket
+
+
+class MonthCount(Strict):
+    month: str           # YYYY-MM
+    new_domains: int
+
+
+class Velocity(Assertion):
+    months: list[MonthCount]
+    program_month: int
+    guideline: str
+    last_month_new: int
+
+
+class LinkFlag(Assertion):
+    kind: Literal["velocity_spike", "exact_match_anchors", "spammy_links"]
+    detail: str
+
+
+class CompetitorAuthority(Assertion):
+    url: str
+    domain_rank: int | None = None
+    referring_domains: int | None = None
+    tier: Literal["realistic", "aspirational"] | None = None
+
+
+class ProfileCopy(Assertion):
+    name: str
+    short: str | None = None
+    medium: str | None = None
+    long: str | None = None
+
+
+class LinkPlanReport(Strict):
+    agent: Literal["linkbuilding"] = "linkbuilding"
+    phase: LinkPhase | None = None
+    signals: list[PhaseSignal] = Field(default_factory=list)
+    tactics: list[TacticOut] = Field(default_factory=list)
+    checklist: list[ChecklistItem] = Field(default_factory=list)
+    prospects: list[Prospect] = Field(default_factory=list)
+    anchors: list[AnchorShare] = Field(default_factory=list)
+    velocity: Velocity | None = None
+    flags: list[LinkFlag] = Field(default_factory=list)
+    competitors: list[CompetitorAuthority] = Field(default_factory=list)
+    profile_copy: ProfileCopy | None = None
+
+
 # ---------- trend ----------
 
 class TrendEvent(Assertion):
@@ -150,11 +245,12 @@ class ReportOut(Strict):
 
 
 ArtifactModel = Annotated[
-    TechnicalReport | KeywordReport | OnPageReport | ContentBriefOut | OffPageReport | TrendReport | ReportOut,
+    TechnicalReport | KeywordReport | OnPageReport | ContentBriefOut | OffPageReport | TrendReport | ReportOut | LinkPlanReport,
     Field(discriminator="agent"),
 ]
 
 ARTIFACT_MODELS: dict[str, type[BaseModel]] = {
     "technical": TechnicalReport, "ecommerce": TechnicalReport, "keyword": KeywordReport, "onpage": OnPageReport,
     "content": ContentBriefOut, "offpage": OffPageReport, "trend": TrendReport, "report": ReportOut,
+    "linkbuilding": LinkPlanReport,
 }

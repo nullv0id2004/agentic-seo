@@ -43,6 +43,25 @@ class CriticalRule(BaseModel):
         return v
 
 
+class LinkTarget(BaseModel):
+    """A platform the project should have a presence on: a brand profile, a directory or a review site."""
+
+    platform: str
+    domain: str
+    kind: Literal["profile", "directory", "review"]
+    priority: int = 100          # lower is done first
+    note: str | None = None
+    active: bool = True
+
+    @field_validator("domain")
+    @classmethod
+    def _bare_domain(cls, v: str) -> str:
+        v = v.strip().lower().removeprefix("https://").removeprefix("http://").removeprefix("www.").split("/", 1)[0]
+        if "." not in v:
+            raise ValueError(f"link target domain {v!r} is not a domain")
+        return v
+
+
 class ProjectConfig(BaseModel):
     """What config/projects/<slug>.yaml declares. Seeds projects, brand_rules, critical_rules."""
 
@@ -70,6 +89,7 @@ class ProjectConfig(BaseModel):
     competitors: list[str] = Field(default_factory=list)   # domains: keyword discovery source, never pitched
     description: str | None = None   # what the project offers and to whom; keyword relevance is judged against it
     cross_link_exclusions: list[str] = Field(default_factory=list)  # slugs whose primary keywords this project may not claim
+    link_targets: list[LinkTarget] = Field(default_factory=list)   # seeds link_targets; the link-building checklist
 
     @field_validator("slug")
     @classmethod

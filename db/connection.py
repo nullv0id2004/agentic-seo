@@ -25,8 +25,9 @@ TENANT_TABLES = frozenset({
     "brand_rules", "critical_rules", "raw_gsc_performance", "raw_ga4_daily", "raw_crawl_pages", "raw_sitemap_urls",
     "raw_vitals", "raw_serp", "raw_keyword_metrics", "raw_fetched_documents", "raw_search_status",
     "raw_ai_keyword_metrics", "raw_llm_mention_metrics", "raw_llm_mentions", "raw_llm_responses", "raw_url_inspection", "raw_keyword_ideas",
-    "raw_referring_domains",
+    "raw_referring_domains", "raw_backlink_summary", "raw_anchors",
     "collection_gaps", "keywords", "pages", "issues", "content_briefs", "mentions", "pitches", "onpage_suggestions", "trend_events", "reports",
+    "link_targets", "link_plans", "link_opportunities",
     "runs", "gate_results", "approvals", "agent_logs", "audit_log",
 })
 

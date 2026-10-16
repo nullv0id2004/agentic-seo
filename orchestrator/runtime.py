@@ -26,7 +26,8 @@ from orchestrator.runs import log_agent
 
 # how the runtime reads each table an analyst declares
 _RUN_SCOPED = {"raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "raw_serp", "raw_fetched_documents", "raw_search_status",
-               "collection_gaps", "raw_keyword_metrics", "raw_ai_keyword_metrics", "raw_llm_mention_metrics", "raw_llm_mentions", "raw_llm_responses", "raw_url_inspection", "raw_keyword_ideas", "raw_referring_domains"}
+               "collection_gaps", "raw_keyword_metrics", "raw_ai_keyword_metrics", "raw_llm_mention_metrics", "raw_llm_mentions", "raw_llm_responses", "raw_url_inspection", "raw_keyword_ideas", "raw_referring_domains",
+               "raw_backlink_summary", "raw_anchors"}
 _DATED = {"raw_gsc_performance": "date", "raw_ga4_daily": "date"}
 
 

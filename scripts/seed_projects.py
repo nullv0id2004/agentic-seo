@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed projects, brand_rules and critical_rules from config/projects/*.yaml. Idempotent; operator action.
+"""Seed projects, brand_rules, critical_rules and link_targets from config/projects/*.yaml. Idempotent; operator action.
 
   SEO_DATABASE_URL=... python scripts/seed_projects.py
 """
@@ -46,6 +46,9 @@ def print_sql() -> None:
         print(f"delete from critical_rules where project_id = (select id from projects where slug = {_lit(cfg.slug)});")
         for c in cfg.critical_rules:
             print(f"insert into critical_rules (project_id, rule_key, url_pattern, assertion, active) select id, {_lit(c.rule_key)}, {_lit(c.url_pattern)}, {_lit(c.assertion)}, {_lit(c.active)} from projects where slug = {_lit(cfg.slug)};")
+        print(f"delete from link_targets where project_id = (select id from projects where slug = {_lit(cfg.slug)});")
+        for t in cfg.link_targets:
+            print(f"insert into link_targets (project_id, platform, domain, kind, priority, note, active) select id, {_lit(t.platform)}, {_lit(t.domain)}, {_lit(t.kind)}, {_lit(t.priority)}, {_lit(t.note)}, {_lit(t.active)} from projects where slug = {_lit(cfg.slug)};")
         print()
 
 

@@ -498,14 +498,23 @@ def test_keyword_discovery_needs_configured_competitors(worker_url, seeded):
 
 
 def test_backlink_gap_collects_competitor_and_own_referring_domains(worker_url, seeded):
-    """The backlink gap needs who links to each competitor and who links to the project; both are stored raw."""
+    """The backlink gap needs who links to each competitor and who links to the project; both are stored raw, with
+    an authority summary per target and the anchors of links to the project for the link-building analyst."""
     import httpx
 
-    bodies = []
+    bodies: dict[str, list[dict]] = {}
 
     def handle(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)[0]
-        bodies.append(body)
+        endpoint = request.url.path.rsplit("/", 2)[-2]
+        bodies.setdefault(endpoint, []).append(body)
+        if endpoint == "summary":
+            if body["target"] == "instahyre.com":
+                return httpx.Response(500)
+            return httpx.Response(200, json=_dfs_task({"target": body["target"], "rank": 41, "backlinks": 900, "referring_domains": 120,
+                                                       "referring_domains_nofollow": 30, "backlinks_spam_score": 4, "first_seen": "2019-11-15 12:57:46 +00:00"}))
+        if endpoint == "anchors":
+            return httpx.Response(200, json=_dfs_task({"items": [{"anchor": " KORUM ", "backlinks": 3, "referring_domains": 2}, {"anchor": None, "backlinks": 1}]}))
         if body["target"] == "korum.worldhire.com":
             return httpx.Response(200, json=_dfs_task({"items": [{"domain": "producthunt.com", "rank": 70, "backlinks": 2}]}))
         return httpx.Response(200, json=_dfs_task({"items": [
@@ -516,15 +525,42 @@ def test_backlink_gap_collects_competitor_and_own_referring_domains(worker_url, 
     project = _project(worker_url, seeded).model_copy(update={"competitors": ["www.instahyre.com", "iimjobs.com", "worldhire.com"]})
     run_id = uuid.uuid4()
     res = collect("backlink_gap", project, run_id, {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
-    assert not res.partial and res.rows_written == 3
-    assert [b["target"] for b in bodies] == ["iimjobs.com", "instahyre.com", "korum.worldhire.com"], \
+    assert res.rows_written == 3 + 2 + 2 and res.gaps == 1, "3 referring domains, 2 summaries (one failed: a gap), 2 anchors"
+    assert [b["target"] for b in bodies["referring_domains"]] == ["iimjobs.com", "instahyre.com", "korum.worldhire.com"], \
         "competitors collapse to their registrable domain; the project's own parent domain is not a competitor"
-    assert bodies[0]["order_by"] == ["rank,desc"] and bodies[0]["rank_scale"] == "one_hundred"
+    assert bodies["referring_domains"][0]["order_by"] == ["rank,desc"] and bodies["referring_domains"][0]["rank_scale"] == "one_hundred"
+    assert [b["target"] for b in bodies["summary"]] == ["iimjobs.com", "instahyre.com", "korum.worldhire.com"]
+    assert [b["target"] for b in bodies["anchors"]] == ["korum.worldhire.com"], "anchors only for the project's own links"
     with project_scope(project.id, url=worker_url) as s:
         rows = s.fetchall("select target, role, domain, rank, spam_score, first_seen from raw_referring_domains where project_id = %(project_id)s and run_id = %(run_id)s order by target", {"run_id": run_id})
+        summary = s.fetchall("select target, role, rank, referring_domains, spam_score, first_seen from raw_backlink_summary where project_id = %(project_id)s and run_id = %(run_id)s order by target", {"run_id": run_id})
+        anchors = s.fetchall("select anchor, backlinks from raw_anchors where project_id = %(project_id)s and run_id = %(run_id)s order by backlinks desc", {"run_id": run_id})
     assert [(r["target"], r["role"], r["domain"]) for r in rows] == [
         ("iimjobs.com", "competitor", "yourstory.com"), ("instahyre.com", "competitor", "yourstory.com"), ("korum.worldhire.com", "own", "producthunt.com")]
     assert rows[0]["spam_score"] == 3 and rows[0]["first_seen"].year == 2021
+    assert [(x["target"], x["role"], x["rank"], x["referring_domains"]) for x in summary] == [("iimjobs.com", "competitor", 41, 120), ("korum.worldhire.com", "own", 41, 120)]
+    assert summary[1]["first_seen"].year == 2019 and summary[1]["spam_score"] == 4
+    assert [(a["anchor"], a["backlinks"]) for a in anchors] == [("KORUM", 3), ("", 1)]
+
+
+def test_backlink_gap_without_competitors_still_collects_the_project(worker_url, seeded):
+    """The link-building analyst needs the project's own rows even when no competitors are configured."""
+    import httpx
+
+    from orchestrator.graphs.monthly_full import competitive_collectors
+
+    targets = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        targets.append(json.loads(request.content)[0]["target"])
+        return httpx.Response(200, json=_dfs_task({"items": []}))
+
+    project = _project(worker_url, seeded).model_copy(update={"competitors": []})
+    res = collect("backlink_gap", project, uuid.uuid4(), {"_transport": httpx.MockTransport(handle)}, db_url=worker_url)
+    assert set(targets) == {"korum.worldhire.com"} and res.gaps == 1
+    assert competitive_collectors(project) == ("backlink_gap",), "linkbuilding is enabled for korum"
+    assert competitive_collectors(project.model_copy(update={"enabled_agents": ["technical"]})) == ()
+    assert competitive_collectors(project.model_copy(update={"competitors": ["naukri.com"]})) == ("keyword_discovery", "backlink_gap")
 
 
 def test_discovered_keywords_drop_brand_searches(worker_url, seeded):

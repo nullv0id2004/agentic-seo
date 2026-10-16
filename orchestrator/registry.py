@@ -64,6 +64,7 @@ register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_ai_k
 register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "brand_rules", "critical_rules"), llm=True))
 register(AgentSpec("content", "analyst", reads=("keywords", "raw_fetched_documents", "content_briefs", "raw_crawl_pages", "critical_rules"), llm=True))
 register(AgentSpec("offpage", "analyst", reads=("mentions", "raw_serp", "brand_rules"), llm=True))
+register(AgentSpec("linkbuilding", "analyst", reads=("raw_backlink_summary", "raw_referring_domains", "raw_anchors", "raw_crawl_pages", "link_targets", "keywords", "brand_rules"), llm=True))
 register(AgentSpec("trend", "analyst", reads=("raw_serp", "mentions", "raw_search_status", "raw_llm_responses"), llm=True))
 register(AgentSpec("report", "analyst", reads=("raw_gsc_performance", "raw_ga4_daily", "issues", "raw_serp", "mentions", "collection_gaps", "runs", "trend_events", "raw_llm_mention_metrics", "raw_llm_mentions", "raw_llm_responses"), llm=True))
 register(AgentSpec("gate_stage1", "gate", reads=("brand_rules", "critical_rules"), writes=("gate_results",)))
@@ -72,7 +73,8 @@ register(AgentSpec("github", "executor", reads=("approvals",), writes=("approval
 register(AgentSpec("cms", "executor", reads=("approvals", "content_briefs"), writes=("approvals", "content_briefs", "audit_log"), network=True, credentials=("cms-content-write-token",)))
 register(AgentSpec("email", "executor", reads=("approvals", "pitches"), writes=("approvals", "pitches", "audit_log"), network=True, credentials=("outreach-smtp",)))
 register(AgentSpec("orchestrator", "control", writes=("runs", "projects", "issues", "approvals", "agent_logs", "audit_log", "keywords", "pages",
-                                                       "content_briefs", "pitches", "reports", "gate_results", "mentions", "trend_events", "onpage_suggestions")))
+                                                       "content_briefs", "pitches", "reports", "gate_results", "mentions", "trend_events", "onpage_suggestions",
+                                                       "link_plans", "link_opportunities")))
 register(AgentSpec("keyword_mapping", "executor", reads=("approvals", "keywords"), writes=("approvals", "keywords", "audit_log")))
 
 

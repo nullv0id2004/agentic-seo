@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from analysts import content, ecommerce, keyword, offpage, onpage, report, technical, trend
+from analysts import content, ecommerce, keyword, linkbuilding, offpage, onpage, report, technical, trend
 from analysts.base import AnalystContext, AnalystInput
 
 AnalystFn = Callable[[AnalystContext, AnalystInput], BaseModel]
@@ -19,4 +19,5 @@ ANALYSTS: dict[str, AnalystFn] = {
     "content": content.run,
     "offpage": offpage.run,
     "ecommerce": ecommerce.run,
+    "linkbuilding": linkbuilding.run,
 }

@@ -10,7 +10,7 @@ export const NAV = [
   { group: "Site health", items: [["technical", "Site audit"]] },
   { group: "Traffic", items: [["search", "Search Console"], ["traffic", "Analytics (GA4)"]] },
   { group: "AI visibility", items: [["ai", "AI search"]] },
-  { group: "Content & links", items: [["content", "Content & backlinks"]] },
+  { group: "Content & links", items: [["content", "Content & backlinks"], ["links", "Link building"]] },
   { group: "Work", items: [["changes", "Changes"], ["operations", "Operations"]] },
 ] as const;
 
@@ -122,7 +122,7 @@ export function Severity({ level }: { level: unknown }) {
 
 export function Status({ value }: { value: unknown }) {
   const s = String(value ?? "");
-  const cls = ["done", "executed", "approved", "ok", "pass", "indexed", "yes"].includes(s) ? "ok"
+  const cls = ["done", "won", "executed", "approved", "ok", "pass", "indexed", "yes"].includes(s) ? "ok"
     : s.startsWith("halted") || ["failed", "rejected", "critical", "fail", "no"].includes(s) ? "critical"
     : ["pending", "paused_for_approval", "running", "partial", "draft", "proposed"].includes(s) ? "warning" : "";
   return <span className={`pill ${cls}`}>{s.replaceAll("_", " ")}</span>;

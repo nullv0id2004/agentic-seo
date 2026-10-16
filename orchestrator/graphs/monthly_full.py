@@ -17,8 +17,15 @@ from orchestrator.runtime import Runtime
 WORKFLOW = "monthly_full"
 COLLECTORS = ("gsc_performance", "ga4", "site_crawl", "gsc_inspection", "header_probe", "vitals", "serp", "search_status", "backlinks")
 # Competitive research for the console's keyword and backlink gaps; only for a project with configured competitors.
+# The link-building analyst needs the project's own backlink rows, so backlink_gap also runs when it is enabled.
 COMPETITIVE = ("keyword_discovery", "backlink_gap")
-ANALYST_ORDER = ("technical", "ecommerce", "keyword", "onpage", "trend", "offpage", "report")
+ANALYST_ORDER = ("technical", "ecommerce", "keyword", "onpage", "trend", "offpage", "linkbuilding", "report")
+
+
+def competitive_collectors(project) -> tuple[str, ...]:
+    if project.competitors:
+        return COMPETITIVE
+    return ("backlink_gap",) if "linkbuilding" in project.enabled_agents else ()
 
 
 def build(rt: Runtime) -> StateGraph:
@@ -42,7 +49,7 @@ def build(rt: Runtime) -> StateGraph:
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
             if name == "header_probe" and res.detail.get("violations"):
                 crit = res.detail["violations"]
-        for name in (COMPETITIVE if project.competitors else ()):
+        for name in competitive_collectors(project):
             res = rt.run_collector(project, run_id, name, {})
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
         critical.handle_violations(rt, project, run_id, crit, "collector:header_probe")

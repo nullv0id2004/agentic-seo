@@ -1,9 +1,14 @@
-"""DataForSEO Backlinks: referring domains of each configured competitor and of the project. Monthly.
+"""DataForSEO Backlinks: referring domains, authority summary and anchors. Monthly.
 
-Written to raw_referring_domains exactly as returned (role 'competitor' or 'own'). The backlink gap (domains
-that link to competitors but not to the project) is computed from these rows when shown, so a change in how
-it is ranked never needs a new collection. Each competitor's domains come strongest first, so the list holds
-the links that carry weight, not every directory that ever linked to a large site.
+Referring domains of each configured competitor and of the project go to raw_referring_domains exactly as
+returned (role 'competitor' or 'own'). The backlink gap (domains that link to competitors but not to the
+project) is computed from these rows when shown, so a change in how it is ranked never needs a new
+collection. Each competitor's domains come strongest first, so the list holds the links that carry weight,
+not every directory that ever linked to a large site.
+
+For the link-building analyst it also stores one authority summary per target (raw_backlink_summary: domain
+rank, referring domains, when the first link was seen) and the anchor texts of links to the project
+(raw_anchors). A project without competitors still gets its own rows.
 """
 from __future__ import annotations
 
@@ -17,8 +22,11 @@ from config.settings import get_settings
 from rules.domains import host_of, registrable
 
 API = "https://api.dataforseo.com/v3/backlinks/referring_domains/live"
+SUMMARY_API = "https://api.dataforseo.com/v3/backlinks/summary/live"
+ANCHORS_API = "https://api.dataforseo.com/v3/backlinks/anchors/live"
 COMPETITOR_LIMIT = 300
 OWN_LIMIT = 1000
+ANCHOR_LIMIT = 300
 MAX_COMPETITORS = 12
 
 
@@ -54,23 +62,13 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     targets.append((own, "own", int(params.get("own_limit", OWN_LIMIT))))
     auth = (s.dataforseo_login or "", s.dataforseo_password or "")
     counts: dict[str, int] = {}
+    common = {"rank_scale": "one_hundred", "exclude_internal_backlinks": True, "backlinks_status_type": "live"}
     with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         for target, role, limit in targets:
-            ratelimit.acquire("dataforseo")
-            r = http.post(API, json=[{"target": target, "limit": limit, "order_by": ["rank,desc"], "rank_scale": "one_hundred",
-                                      "exclude_internal_backlinks": True, "backlinks_status_type": "live"}])
-            if r.status_code != 200:
-                ctx.gap(f"referring domains returned {r.status_code}", target)
+            result = _result(ctx, http, API, {"target": target, "limit": limit, "order_by": ["rank,desc"], **common}, "referring domains", target)
+            if result is None:
                 continue
-            try:
-                task = r.json()["tasks"][0]
-            except (KeyError, IndexError, TypeError, ValueError):
-                ctx.gap("referring domains response shape unexpected", target)
-                continue
-            if task.get("status_code") != 20000:
-                ctx.gap(f"referring domains task status {task.get('status_code')}: {task.get('status_message')}", target)
-                continue
-            items = ((task.get("result") or [None])[0] or {}).get("items") or []
+            items = result.get("items") or []
             counts[target] = len(items)
             for it in items:
                 domain = host_of(it.get("domain"))
@@ -82,4 +80,42 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                     "spam_score": _int(it.get("backlinks_spam_score")),
                     "first_seen": _ts(it.get("first_seen")), "lost_date": _ts(it.get("lost_date")),
                 })
-    ctx.result.detail.update({"competitors": competitors, "own": own, "domains": counts})
+        for target, role, _ in targets:
+            result = _result(ctx, http, SUMMARY_API, {"target": target, **common}, "backlink summary", target)
+            if result is None:
+                continue
+            ctx.write("raw_backlink_summary", {
+                "target": target, "role": role, "rank": _int(result.get("rank")), "backlinks": _int(result.get("backlinks")),
+                "referring_domains": _int(result.get("referring_domains")),
+                "referring_domains_nofollow": _int(result.get("referring_domains_nofollow")),
+                "referring_main_domains": _int(result.get("referring_main_domains")),
+                "spam_score": _int(result.get("backlinks_spam_score")), "first_seen": _ts(result.get("first_seen")),
+            })
+        result = _result(ctx, http, ANCHORS_API, {"target": own, "limit": int(params.get("anchor_limit", ANCHOR_LIMIT)), "order_by": ["backlinks,desc"], **common},
+                         "anchors", own)
+        anchors = (result or {}).get("items") or []
+        for it in anchors:
+            ctx.write("raw_anchors", {
+                "target": own, "anchor": str(it.get("anchor") or "").strip()[:500], "backlinks": _int(it.get("backlinks")),
+                "referring_domains": _int(it.get("referring_domains")), "spam_score": _int(it.get("backlinks_spam_score")),
+                "first_seen": _ts(it.get("first_seen")), "lost_date": _ts(it.get("lost_date")),
+            })
+    ctx.result.detail.update({"competitors": competitors, "own": own, "domains": counts, "anchors": len(anchors)})
+
+
+def _result(ctx: CollectorContext, http: Any, url: str, body: dict[str, Any], what: str, target: str) -> dict[str, Any] | None:
+    """POST one live task and return its first result object, or record a gap and return None."""
+    ratelimit.acquire("dataforseo")
+    r = http.post(url, json=[body])
+    if r.status_code != 200:
+        ctx.gap(f"{what} returned {r.status_code}", target)
+        return None
+    try:
+        task = r.json()["tasks"][0]
+    except (KeyError, IndexError, TypeError, ValueError):
+        ctx.gap(f"{what} response shape unexpected", target)
+        return None
+    if task.get("status_code") != 20000:
+        ctx.gap(f"{what} task status {task.get('status_code')}: {task.get('status_message')}", target)
+        return None
+    return (task.get("result") or [None])[0] or {}

@@ -33,7 +33,7 @@ QUOTED_FIELDS = {"evidence", "supporting_span", "current", "claim"}
 NUMERIC_BOUNDS: dict[str, tuple[float, float]] = {
     "volume": (0, 100_000_000), "volume_low": (0, 100_000_000), "volume_high": (0, 100_000_000),
     "ctr": (0, 1), "position": (0, 1000), "cls": (0, 10), "lcp_ms": (0, 120_000), "inp_ms": (0, 60_000),
-    "difficulty": (0, 100), "domain_rating": (0, 100), "cost_usd": (0, 10_000), "clicks": (0, 1e9),
+    "difficulty": (0, 100), "domain_rating": (0, 100), "domain_rank": (0, 100), "spam_score": (0, 100), "cost_usd": (0, 10_000), "clicks": (0, 1e9),
     "impressions": (0, 1e10), "sessions": (0, 1e9), "percent": (-100, 100_000), "pct": (-100, 100_000),
 }
 DATE_FIELDS = {"observed_on", "cutoff_date", "first_seen", "date"}
