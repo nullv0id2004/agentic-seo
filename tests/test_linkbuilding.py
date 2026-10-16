@@ -252,3 +252,39 @@ def test_link_plan_passes_the_gate_persists_and_marks_won_prospects(worker_url, 
         still = s.fetchone("select status, last_run_id from link_opportunities where project_id = %(project_id)s and kind = 'prospect' and domain = 'inc42.com'")
     assert won["status"] == "won" and won["done_at"] is not None
     assert still["status"] == "todo" and still["last_run_id"] == run2
+
+
+@pytest.mark.db
+@requires_db
+def test_link_plan_workflow_refreshes_the_plan_on_demand(worker_url, seeded):
+    """link_plan crawls, collects backlinks and runs the analyst in one run, so the checklist can be refreshed after
+    a profile goes live without waiting for the monthly run."""
+    import httpx
+
+    from orchestrator.runner import run_workflow
+    from orchestrator.runtime import Runtime
+    from tests.fakesite import FakeSite
+
+    def dfs(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)[0]
+        endpoint = request.url.path.rsplit("/", 2)[-2]
+        if endpoint == "summary":
+            result = {"rank": 2 if body["target"] == "korum.worldhire.com" else 70, "referring_domains": 1, "first_seen": "2026-09-01 00:00:00 +00:00"}
+        elif endpoint == "anchors" or body["target"] == "korum.worldhire.com":
+            result = {"items": []}
+        else:
+            result = {"items": [{"domain": "yourstory.com", "rank": 64}, {"domain": "inc42.com", "rank": 70}]}
+        return httpx.Response(200, json={"status_code": 20000, "tasks": [{"status_code": 20000, "result": [result]}]})
+
+    with project_scope(seeded["korum"], url=worker_url) as s:
+        project = Project.from_row(s.fetchone("select * from projects where id = %(project_id)s"))
+    rt = Runtime(db_url=worker_url, model="fake", llm=FakeLLM({"linkbuilding": lambda s, u, sc: {"prospects": []}}),
+                 collector_overrides={"site_crawl": {"_transport": FakeSite().transport}, "backlink_gap": {"_transport": httpx.MockTransport(dfs)}})
+    h = run_workflow(rt, project, "link_plan", "test", f"links-{uuid.uuid4().hex[:6]}", params={"max_pages": 20})
+    assert h.status == "done"
+    with project_scope(project.id, url=worker_url) as s:
+        plan = s.fetchone("select phase, signals, tactics from link_plans where project_id = %(project_id)s and run_id = %(r)s", {"r": h.id})
+        prospects = s.fetchall("select domain from link_opportunities where project_id = %(project_id)s and kind = 'prospect' and last_run_id = %(r)s order by domain", {"r": h.id})
+    assert plan["phase"] == "foundation"
+    assert {x["name"] for x in plan["signals"]} >= {"domain_rank", "indexable_pages", "profiles_listed"}
+    assert [p["domain"] for p in prospects] == ["inc42.com", "yourstory.com"]

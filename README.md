@@ -94,6 +94,7 @@ Without it those tests skip.
 | `monthly_full` | cron 4th 06:00 IST | all collectors, all enabled analysts, gate, report, approvals digest |
 | `quarterly_keyword` | cron 2nd of Jan/Apr/Jul/Oct | keyword_metrics, keyword_analyst, gate, keyword_mapping approval |
 | `content_pipeline` | manual: `python worker.py run <slug> content_pipeline` | doc_fetch, content_analyst, gate stages 1 and 2, publish approval |
+| `link_plan` | manual: `python worker.py run <slug> link_plan <key>` | site_crawl, backlink_gap, linkbuilding_analyst, gate (refreshes the link plan between monthly runs) |
 
 Projects are staggered twenty minutes apart so shared API keys are not hit at once. Approved rows are executed
 on the next scheduler tick.
@@ -173,7 +174,7 @@ model tokens.
 
 ## Link building
 
-The `linkbuilding` analyst (monthly, when it is in `enabled_agents`) turns a link-building playbook into a plan
+The `linkbuilding` analyst (monthly, or on demand with the `link_plan` workflow, when it is in `enabled_agents`) turns a link-building playbook into a plan
 built from the project's own rows. It never drafts outreach and nothing it produces needs an approval: it is advice.
 
 - Data: `backlink_gap` also stores one authority summary per target (`raw_backlink_summary`: domain rank, referring
