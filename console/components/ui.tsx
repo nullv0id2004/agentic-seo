@@ -5,12 +5,12 @@ import { delta } from "@/lib/format";
 /** Navigation, grouped by the job a page does (as in Semrush's toolkits). Order is the reading order. */
 export const NAV = [
   { group: "Dashboard", items: [["overview", "Overview"]] },
-  { group: "Competitive research", items: [["competitors", "Keyword & backlink gap"]] },
+  { group: "Competitive research", items: [["domains", "Competitor overview"], ["competitors", "Keyword & backlink gap"]] },
   { group: "Keyword research", items: [["keywords", "Keywords"], ["rankings", "Rank tracking"]] },
   { group: "Site health", items: [["technical", "Site audit"]] },
   { group: "Traffic", items: [["search", "Search Console"], ["traffic", "Analytics (GA4)"]] },
   { group: "AI visibility", items: [["ai", "AI search"]] },
-  { group: "Content & links", items: [["content", "Content & backlinks"], ["links", "Link building"]] },
+  { group: "Content & links", items: [["backlinks", "Backlinks"], ["links", "Link building"], ["content", "Content & outreach"]] },
   { group: "Work", items: [["changes", "Changes"], ["operations", "Operations"]] },
 ] as const;
 
@@ -72,8 +72,8 @@ export function RangeFilter({ slug, tab, range, note }: { slug: string; tab: Tab
   );
 }
 
-/** A 12-ish point sparkline: de-emphasis line, current point in the accent. */
-function Sparkline({ values }: { values: (number | null)[] }) {
+/** A 12-ish point sparkline: de-emphasis line, current point in the accent. Higher values plot higher. */
+export function Sparkline({ values, label }: { values: (number | null)[]; label?: string }) {
   const pts = values.map((v, i) => ({ v, i })).filter((p): p is { v: number; i: number } => p.v != null);
   if (pts.length < 2) return null;
   const max = Math.max(...pts.map((p) => p.v));
@@ -85,7 +85,7 @@ function Sparkline({ values }: { values: (number | null)[] }) {
   const d = pts.map((p, k) => `${k ? "L" : "M"}${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
   const last = pts[pts.length - 1];
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden={label ? undefined : true} role={label ? "img" : undefined} aria-label={label}>
       <path d={d} fill="none" stroke="var(--axis)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
       <line x1={x(last.i)} y1={y(last.v)} x2={x(last.i)} y2={y(last.v)} stroke="var(--series-1)" strokeWidth={6} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
     </svg>

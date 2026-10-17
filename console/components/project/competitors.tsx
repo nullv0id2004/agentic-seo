@@ -3,12 +3,9 @@ import { DataTable, type DRow } from "@/components/datatable";
 import { Section, StatTile } from "@/components/ui";
 import { withProject } from "@/lib/db";
 import { fmtDay, fmtInt, fmtUsd, num, pathOf, str } from "@/lib/format";
+import { GENERIC, registrable } from "@/lib/domains";
 import { projectDomains } from "@/lib/sql";
 import type { TabProps } from "./overview";
-
-// Sites that link to almost everything; a gap to them says nothing about this market. Mirrors rules/domains.py.
-const GENERIC = ["youtube.com", "wikipedia.org", "reddit.com", "quora.com", "facebook.com", "instagram.com", "x.com", "twitter.com",
-  "pinterest.com", "medium.com", "amazon.in", "amazon.com", "google.com", "linkedin.com", "apple.com", "microsoft.com"];
 
 type Gap = "missing" | "untapped" | "weak" | "strong";
 const GAP_LABEL: Record<Gap, string> = { missing: "Missing", untapped: "Untapped", weak: "Weak", strong: "Strong" };
@@ -18,14 +15,6 @@ const GAP_HELP: Record<Gap, string> = {
   weak: "you rank, but below the best competitor",
   strong: "you rank at or above every competitor",
 };
-
-function registrable(host: string): string {
-  const labels = host.toLowerCase().replace(/^www\./, "").split(".").filter(Boolean);
-  if (labels.length >= 3 && labels[labels.length - 1].length === 2 && ["co", "com", "org", "net", "gov", "ac", "edu"].includes(labels[labels.length - 2])) {
-    return labels.slice(-3).join(".");
-  }
-  return labels.slice(-2).join(".");
-}
 
 export async function CompetitorsTab({ projectId, project }: TabProps) {
   const own = projectDomains(project);
@@ -54,7 +43,7 @@ export async function CompetitorsTab({ projectId, project }: TabProps) {
         and run_id = (select run_id from raw_keyword_ideas where project_id = $1 and source = 'competitor' order by collected_at desc limit 1)`))[0] ?? {},
     links: await q(`with lr as (select run_id from raw_referring_domains where project_id = $1 order by collected_at desc limit 1),
       rd as (select * from raw_referring_domains where project_id = $1 and run_id = (select run_id from lr)),
-      mine as (select domain from rd where role = 'own'
+      mine as (select domain from rd where role = 'own' and lost_date is null
                union select regexp_replace(lower(split_part(split_part(source_url, '//', 2), '/', 1)), '^www\\.', '') from mentions where project_id = $1 and kind = 'link')
       select domain, count(distinct target)::int as linking, array_agg(distinct target order by target) as targets, max(rank) as rank,
         max(spam_score) as spam, sum(backlinks)::int as backlinks, min(first_seen) as first_seen

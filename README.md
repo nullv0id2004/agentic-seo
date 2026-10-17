@@ -94,6 +94,8 @@ Without it those tests skip.
 | `monthly_full` | cron 4th 06:00 IST | all collectors, all enabled analysts, gate, report, approvals digest |
 | `quarterly_keyword` | cron 2nd of Jan/Apr/Jul/Oct | keyword_metrics, keyword_analyst, gate, keyword_mapping approval |
 | `content_pipeline` | manual: `python worker.py run <slug> content_pipeline` | doc_fetch, content_analyst, gate stages 1 and 2, publish approval |
+| `daily_rank` | cron 06:15 IST, projects with `rank_tracking_limit` > 0 | serp for the top tracked keywords (mapped first, then by volume) |
+| `competitor_overview` | manual: `python worker.py run <slug> competitor_overview <key>` (monthly_full runs it too) | competitor_overview collector |
 | `link_plan` | manual: `python worker.py run <slug> link_plan <key>` | site_crawl, backlink_gap, linkbuilding_analyst, gate (refreshes the link plan between monthly runs) |
 
 Projects are staggered twenty minutes apart so shared API keys are not hit at once. Approved rows are executed
@@ -200,3 +202,20 @@ built from the project's own rows. It never drafts outreach and nothing it produ
   so is a third-party page address or title on a protected path.
 - Stored in `link_plans` (one per run) and `link_opportunities` (one per domain across runs; a prospect that starts
   linking to the project becomes `won`). The console's Link building page shows both.
+
+## Competitor overview, backlink changes, rank tracking
+
+- **Competitor overview** (`competitor_overview` collector, monthly for projects with competitors, or on demand):
+  DataForSEO Labs `domain_rank_overview`, `historical_rank_overview` (12 months) and `relevant_pages` (top 10) for the
+  project and each competitor, Google India in English, into `raw_domain_overview`, `raw_domain_history` and
+  `raw_domain_pages` (migration 0018). A domain Labs has no data for gets a gap row and a dash in the console, not a
+  zero. The console's Competitor overview page puts them side by side with domain rank and referring domains.
+- **Backlink changes** (`backlink_gap`): the project's own referring domains are collected live and lost (`lost_date`
+  set), and `backlinks/timeseries_new_lost_summary` gives new and lost backlinks and referring domains per month for
+  the project and each competitor (`raw_backlink_changes`). The Backlinks page shows linking domains (new, live,
+  lost), spam scores (above 30 worth checking, above 60 likely toxic), the monthly trend and competitors' link
+  velocity.
+- **Daily rank tracking**: `rank_tracking_limit` in `config/projects/<slug>.yaml` (0 to 50, default 0) is how many
+  tracked keywords the `daily_rank` workflow checks every day (Google India, desktop, top 20); the weekly monitor
+  still checks every keyword. The Rank tracking page shows visibility (the CTR-weighted share of the clicks the
+  tracked keywords could bring), each keyword's daily trend and best competitor, and who else ranks for them.

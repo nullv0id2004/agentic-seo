@@ -10,6 +10,8 @@ cms_publish_url: null
 approver_id: 93a8539c-c38d-427a-86af-150fbdb5539a
 monthly_cost_cap_usd: 50
 monthly_content_cap: 4
+# Tracked keywords whose Google rank is checked every day (06:15 IST); mapped keywords first, then by volume.
+rank_tracking_limit: 25
 enabled_agents: [technical, keyword, onpage, content, offpage, trend, linkbuilding, report]
 allowed_schema_types: [Organization, WebSite, Article, FAQPage, BreadcrumbList]
 critical_paths: [/dashboard, /dashboard/, /recruiter, /recruiter/, /recruiter/inbox, /recruiter/jobs, /admin, /admin/, /api/health]

@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { AiTab } from "@/components/project/ai";
+import { BacklinksTab } from "@/components/project/backlinks";
 import { ChangesTab } from "@/components/project/changes";
 import { CompetitorsTab } from "@/components/project/competitors";
 import { ContentTab } from "@/components/project/content";
+import { DomainsTab } from "@/components/project/domains";
 import { KeywordsTab } from "@/components/project/keywords";
 import { LinksTab } from "@/components/project/links";
 import { OperationsTab } from "@/components/project/operations";
@@ -21,6 +23,7 @@ export const dynamic = "force-dynamic";
 const RENDER: Record<TabKey, (p: TabProps) => Promise<React.ReactElement>> = {
   overview: OverviewTab, changes: ChangesTab, search: SearchTab, traffic: TrafficTab, keywords: KeywordsTab, rankings: RankingsTab,
   technical: TechnicalTab, ai: AiTab, content: ContentTab, operations: OperationsTab, competitors: CompetitorsTab, links: LinksTab,
+  domains: DomainsTab, backlinks: BacklinksTab,
 };
 
 // Pages whose numbers do not depend on the range hide the filter rather than offer a control that does nothing.

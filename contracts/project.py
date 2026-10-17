@@ -90,6 +90,7 @@ class ProjectConfig(BaseModel):
     description: str | None = None   # what the project offers and to whom; keyword relevance is judged against it
     cross_link_exclusions: list[str] = Field(default_factory=list)  # slugs whose primary keywords this project may not claim
     link_targets: list[LinkTarget] = Field(default_factory=list)   # seeds link_targets; the link-building checklist
+    rank_tracking_limit: int = Field(default=0, ge=0, le=50)   # tracked keywords checked every day; 0 = weekly only
 
     @field_validator("slug")
     @classmethod
@@ -129,6 +130,7 @@ class Project(BaseModel):
     description: str | None = None   # what the project offers and to whom; keyword relevance is judged against it
     github_repo: str | None = None
     cms_publish_url: str | None = None
+    rank_tracking_limit: int = 0
     active: bool = True
     halted_reason: str | None = None
 

@@ -11,14 +11,21 @@ rank, referring domains, when the first link was seen), the anchor texts of link
 and, for the strongest backlink-gap candidates (rules/links.py), one page on each that links to a competitor
 (raw_link_pages: address, title, anchor, platform, place on the page). Candidates are grouped by competitor so a
 few calls cover them all. A project without competitors still gets its own rows.
+
+Backlink changes: the project's own referring domains are collected live and lost (lost ones carry lost_date), and
+raw_backlink_changes holds new and lost backlinks and referring domains per month for the last twelve months, for
+the project and each competitor (backlinks/timeseries_new_lost_summary).
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date
 from typing import Any
 
-from collectors import ratelimit
 from collectors.base import CollectorContext
+from collectors.dataforseo import as_int as _int
+from collectors.dataforseo import as_ts as _ts
+from collectors.dataforseo import live_result as _result
+from collectors.dataforseo import months_back
 from collectors.http import client
 from config.settings import get_settings
 from rules.domains import host_of, registrable
@@ -29,29 +36,14 @@ API = "https://api.dataforseo.com/v3/backlinks/referring_domains/live"
 SUMMARY_API = "https://api.dataforseo.com/v3/backlinks/summary/live"
 ANCHORS_API = "https://api.dataforseo.com/v3/backlinks/anchors/live"
 BACKLINKS_API = "https://api.dataforseo.com/v3/backlinks/backlinks/live"
+CHANGES_API = "https://api.dataforseo.com/v3/backlinks/timeseries_new_lost_summary/live"
+CHANGE_MONTHS = 12
 COMPETITOR_LIMIT = 300
 OWN_LIMIT = 1000
 ANCHOR_LIMIT = 300
 MAX_COMPETITORS = 12
 CANDIDATE_CAP = 80        # gap candidates whose linking page is looked up
 MAX_PAGE_CALLS = 6        # one call per competitor, chosen to cover as many candidates as possible
-
-
-def _int(v: Any) -> int | None:
-    try:
-        return int(v) if v is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _ts(v: Any) -> datetime | None:
-    """DataForSEO writes '2019-11-15 12:57:46 +00:00'; anything unparseable is stored as null, not guessed."""
-    if not isinstance(v, str) or not v.strip():
-        return None
-    try:
-        return datetime.fromisoformat(v.strip().replace(" +", "+").replace(" -", "-"))
-    except ValueError:
-        return None
 
 
 def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
@@ -73,7 +65,9 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     common = {"rank_scale": "one_hundred", "exclude_internal_backlinks": True, "backlinks_status_type": "live"}
     with client(transport=params.get("_transport"), auth=auth, on_cost=ctx.add_cost) as http:
         for target, role, limit in targets:
-            result = _result(ctx, http, API, {"target": target, "limit": limit, "order_by": ["rank,desc"], **common}, "referring domains", target)
+            # the project's own links include lost ones (lost_date set), for the backlink changes; competitors' are live only
+            status = {"backlinks_status_type": "all"} if role == "own" else {}
+            result = _result(ctx, http, API, {"target": target, "limit": limit, "order_by": ["rank,desc"], **common, **status}, "referring domains", target)
             if result is None:
                 continue
             items = result.get("items") or []
@@ -100,6 +94,19 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 "referring_main_domains": _int(result.get("referring_main_domains")),
                 "spam_score": _int(result.get("backlinks_spam_score")), "first_seen": _ts(result.get("first_seen")),
             })
+        start = months_back(params.get("today") or date.today(), CHANGE_MONTHS)
+        for target, role, _ in targets:
+            result = _result(ctx, http, CHANGES_API, {"target": target, "date_from": start.isoformat(), "group_range": "month"},
+                             "backlink changes", target)
+            for it in (result or {}).get("items") or []:
+                when = _ts(it.get("date"))
+                if when is None:
+                    continue
+                ctx.write("raw_backlink_changes", {
+                    "target": target, "role": role, "month": when.date().replace(day=1),
+                    "new_backlinks": _int(it.get("new_backlinks")), "lost_backlinks": _int(it.get("lost_backlinks")),
+                    "new_referring_domains": _int(it.get("new_referring_domains")), "lost_referring_domains": _int(it.get("lost_referring_domains")),
+                })
         result = _result(ctx, http, ANCHORS_API, {"target": own, "limit": int(params.get("anchor_limit", ANCHOR_LIMIT)), "order_by": ["backlinks,desc"], **common},
                          "anchors", own)
         anchors = (result or {}).get("items") or []
@@ -143,21 +150,3 @@ def _linking_pages(ctx: CollectorContext, http: Any, project: Any, own: str, com
             })
             written += 1
     return written
-
-
-def _result(ctx: CollectorContext, http: Any, url: str, body: dict[str, Any], what: str, target: str) -> dict[str, Any] | None:
-    """POST one live task and return its first result object, or record a gap and return None."""
-    ratelimit.acquire("dataforseo")
-    r = http.post(url, json=[body])
-    if r.status_code != 200:
-        ctx.gap(f"{what} returned {r.status_code}", target)
-        return None
-    try:
-        task = r.json()["tasks"][0]
-    except (KeyError, IndexError, TypeError, ValueError):
-        ctx.gap(f"{what} response shape unexpected", target)
-        return None
-    if task.get("status_code") != 20000:
-        ctx.gap(f"{what} task status {task.get('status_code')}: {task.get('status_message')}", target)
-        return None
-    return (task.get("result") or [None])[0] or {}

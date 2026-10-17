@@ -30,11 +30,13 @@ def _load_workflows() -> None:
     register_workflow(monthly_full.WORKFLOW, monthly_full.build)
     register_workflow("daily_probe", daily.build_daily_probe)
     register_workflow("daily_collect", daily.build_daily_collect)
-    from orchestrator.graphs import content_pipeline, link_plan, quarterly_keyword
+    from orchestrator.graphs import competitive, content_pipeline, link_plan, quarterly_keyword
 
     register_workflow(quarterly_keyword.WORKFLOW, quarterly_keyword.build)
     register_workflow(content_pipeline.WORKFLOW, content_pipeline.build)
     register_workflow(link_plan.WORKFLOW, link_plan.build)
+    register_workflow(competitive.DAILY_RANK, competitive.build_daily_rank)
+    register_workflow(competitive.COMPETITOR_OVERVIEW, competitive.build_competitor_overview)
 
 
 def run_workflow(rt: Runtime, project: Project, workflow: str, trigger: str, logical_date: str,

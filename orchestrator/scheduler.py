@@ -27,6 +27,7 @@ class Schedule:
 SCHEDULES: tuple[Schedule, ...] = (
     Schedule("daily_collect", 5, 30),
     Schedule("daily_probe", 7, 0),
+    Schedule("daily_rank", 6, 15),
     Schedule("daily_digest", 9, 0),
     Schedule("weekly_monitor", 6, 0, weekday=0, logical="week"),
     Schedule("monthly_full", 6, 0, day_of_month=4, logical="month"),
@@ -89,6 +90,8 @@ def tick(rt, now_utc: datetime | None = None) -> list[dict[str, Any]]:
             started.append({"project": project.slug, "workflow": workflow, "digest": d})
             continue
         if workflow == "quarterly_keyword" and "keyword" not in project.enabled_agents:
+            continue
+        if workflow == "daily_rank" and project.rank_tracking_limit <= 0:
             continue
         try:
             h = run_workflow(rt, project, workflow, "cron", logical)

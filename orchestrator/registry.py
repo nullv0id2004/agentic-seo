@@ -54,7 +54,8 @@ for _c, _writes, _reads in [
     ("llm_mentions", ("raw_llm_mention_metrics", "raw_llm_mentions"), ()),
     ("llm_responses", ("raw_llm_responses",), ("keywords",)),
     ("keyword_discovery", ("raw_keyword_ideas",), ("keywords", "raw_serp")),
-    ("backlink_gap", ("raw_referring_domains", "raw_backlink_summary", "raw_anchors", "raw_link_pages"), ()),
+    ("backlink_gap", ("raw_referring_domains", "raw_backlink_summary", "raw_anchors", "raw_link_pages", "raw_backlink_changes"), ()),
+    ("competitor_overview", ("raw_domain_overview", "raw_domain_history", "raw_domain_pages"), ()),
 ]:
     register(AgentSpec(_c, "collector", reads=_reads, writes=_writes + ("collection_gaps",), network=True))
 

@@ -573,7 +573,7 @@ def test_backlink_gap_without_competitors_still_collects_the_project(worker_url,
     assert set(targets) == {"korum.worldhire.com"} and res.gaps == 1
     assert competitive_collectors(project) == ("backlink_gap",), "linkbuilding is enabled for korum"
     assert competitive_collectors(project.model_copy(update={"enabled_agents": ["technical"]})) == ()
-    assert competitive_collectors(project.model_copy(update={"competitors": ["naukri.com"]})) == ("keyword_discovery", "backlink_gap")
+    assert competitive_collectors(project.model_copy(update={"competitors": ["naukri.com"]})) == ("keyword_discovery", "backlink_gap", "competitor_overview")
 
 
 def test_discovered_keywords_drop_brand_searches(worker_url, seeded):

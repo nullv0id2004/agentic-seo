@@ -16,9 +16,10 @@ from orchestrator.runtime import Runtime
 
 WORKFLOW = "monthly_full"
 COLLECTORS = ("gsc_performance", "ga4", "site_crawl", "gsc_inspection", "header_probe", "vitals", "serp", "search_status", "backlinks")
-# Competitive research for the console's keyword and backlink gaps; only for a project with configured competitors.
-# The link-building analyst needs the project's own backlink rows, so backlink_gap also runs when it is enabled.
-COMPETITIVE = ("keyword_discovery", "backlink_gap")
+# Competitive research for the console's keyword and backlink gaps and competitor overview; only for a project with
+# configured competitors. The link-building analyst needs the project's own backlink rows, so backlink_gap also runs
+# when it is enabled.
+COMPETITIVE = ("keyword_discovery", "backlink_gap", "competitor_overview")
 ANALYST_ORDER = ("technical", "ecommerce", "keyword", "onpage", "trend", "offpage", "linkbuilding", "report")
 
 
