@@ -1,0 +1,20 @@
+# Local Postgres 16 for development and the db-marked tests: `docker compose up -d`.
+# Databases: seo_dev (worker and console) and seo_test (pytest rebuilds its schema every session).
+# Listens on 127.0.0.1:5433 only, with trust auth. Nothing here ever points at Supabase.
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/local-db-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 15
+
+volumes:
+  pgdata:

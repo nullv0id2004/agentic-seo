@@ -45,13 +45,48 @@ worker.py                App Service entrypoint: webhook server + one-minute sch
 
 ## Running locally
 
+Needs Python 3.12, Node 22 and Docker (or any Postgres 16 on localhost). On Windows, use WSL2.
+
 ```bash
-uv venv --python 3.12 .venv && . .venv/bin/activate
-uv pip install -e ".[dev]"
-python scripts/lint_imports.py
-SEO_TEST_DATABASE_URL=postgresql://postgres@localhost:5432/seo_test pytest
+# 1. Postgres 16 on localhost:5433 with two databases, seo_dev and seo_test
+docker compose up -d
+
+# 2. Python worker
+uv venv --python 3.12 .venv && . .venv/bin/activate && uv pip install -e ".[dev]"
+#   without uv: python3.12 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
+python scripts/local_db.py          # migrations, seo_worker_login / seo_console_login, projects; prints the URLs below
+
+# 3. Worker settings: copy .env.example to .env, then set
+#      SEO_DATABASE_URL=postgresql://seo_worker_login:local@localhost:5433/seo_dev
+#      SEO_SECRET_BACKEND=env, OPENAI_API_KEY, DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD, PAGESPEED_API_KEY
+#    The worker reads the environment only, so load the file into the shell:
+set -a && . ./.env && set +a
+python worker.py run korum daily_rank local-1     # free smoke test: no keywords yet, so it finishes "done" with no API call
+
+# 4. Console on http://localhost:3000/?token=change-me
+cd console && cp .env.example .env.local && npm ci && npm run dev
+```
+
+The local database starts empty except for the projects; pages fill as workflows run, and every workflow that
+calls DataForSEO or a model spends real money, as in production. Search Console and GA4 need a Google
+service-account key (JSON, `"type": "service_account"`) in `SEO_SECRET_<CREDENTIALS_REF>` (for korum,
+`SEO_SECRET_GSC_KORUM_SERVICE_ACCOUNT`); an `external_account` config from Key Vault only works on App Service,
+whose managed identity it exchanges. Without a key those collectors record a gap. Use Chrome, Edge or Firefox for the console: its sign-in cookie is
+`Secure`, which these browsers accept on `http://localhost`.
+
+To browse production data, point only the console at it: put the `seo_console_login` URL from the console
+Web App's settings in `console/.env.local`. That role reads, and decides approvals, which are then real. Never
+start `python worker.py` (serve mode) against the production database from a laptop: it starts a second
+scheduler beside the one on App Service. Production runs belong in the App Service SSH console.
+
+Checks before pushing:
+
+```bash
+python scripts/lint_imports.py && ruff check .
+SEO_TEST_DATABASE_URL=postgresql://postgres@localhost:5433/seo_test pytest
 python evals/run_evals.py            # deterministic + gullible fake verifier
 python evals/run_evals.py --live     # with the real verifier (ANTHROPIC_API_KEY)
+cd console && npm run typecheck
 ```
 
 Tests marked `db` need a Postgres reachable at `SEO_TEST_DATABASE_URL`; they rebuild the schema per session.
