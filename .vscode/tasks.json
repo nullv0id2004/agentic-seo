@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Checks before pushing",
+      "type": "shell",
+      "command": "${command:python.interpreterPath} scripts/lint_imports.py && ${command:python.interpreterPath} -m ruff check . && ${command:python.interpreterPath} -m pytest && ${command:python.interpreterPath} evals/run_evals.py && cd console && npm run typecheck",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

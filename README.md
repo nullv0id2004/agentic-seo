@@ -45,39 +45,61 @@ worker.py                App Service entrypoint: webhook server + one-minute sch
 
 ## Running locally
 
-Needs Python 3.12, Node 22 and Docker (or any Postgres 16 on localhost). On Windows, use WSL2.
+Needs Python 3.12 and Node 22. On Windows, use WSL2 (the commands below are bash).
+
+### Working from VS Code against the production database
 
 ```bash
-# 1. Postgres 16 on localhost:5433 with two databases, seo_dev and seo_test
-docker compose up -d
-
-# 2. Python worker
-uv venv --python 3.12 .venv && . .venv/bin/activate && uv pip install -e ".[dev]"
-#   without uv: python3.12 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
-python scripts/local_db.py          # migrations, seo_worker_login / seo_console_login, projects; prints the URLs below
-
-# 3. Worker settings: copy .env.example to .env, then set
-#      SEO_DATABASE_URL=postgresql://seo_worker_login:local@localhost:5433/seo_dev
-#      SEO_SECRET_BACKEND=env, OPENAI_API_KEY, DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD, PAGESPEED_API_KEY
-#    The worker reads the environment only, so load the file into the shell:
-set -a && . ./.env && set +a
-python worker.py run korum daily_rank local-1     # free smoke test: no keywords yet, so it finishes "done" with no API call
-
-# 4. Console on http://localhost:3000/?token=change-me
-cd console && cp .env.example .env.local && npm ci && npm run dev
+git clone https://github.com/nullv0id2004/agentic-seo.git && cd agentic-seo
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt && pip install -e ".[dev]"     # the worker image's pinned set, then pytest and ruff
+cp .env.example .env
+cd console && npm ci && cp .env.example .env.local && cd ..
+code .                                                           # accept the recommended extensions
 ```
 
-The local database starts empty except for the projects; pages fill as workflows run, and every workflow that
-calls DataForSEO or a model spends real money, as in production. Search Console and GA4 need a Google
-service-account key (JSON, `"type": "service_account"`) in `SEO_SECRET_<CREDENTIALS_REF>` (for korum,
-`SEO_SECRET_GSC_KORUM_SERVICE_ACCOUNT`); an `external_account` config from Key Vault only works on App Service,
-whose managed identity it exchanges. Without a key those collectors record a gap. Use Chrome, Edge or Firefox for the console: its sign-in cookie is
-`Secure`, which these browsers accept on `http://localhost`.
+Fill `.env` from the worker Web App's application settings (Azure portal: Settings, Environment variables):
+`SEO_DATABASE_URL` (the `seo_worker_login` URL through the Supabase session pooler; the direct
+`db.<ref>.supabase.co` host is IPv6-only and fails on most home networks), `SEO_LLM_PROVIDER`, `OPENAI_API_KEY`,
+`SEO_AGENT_MODELS`, `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`, `PAGESPEED_API_KEY`, `SEO_SECRET_BACKEND` and
+`AZURE_KEY_VAULT_URL`. Key Vault is read with your own Azure login (`az login`), which needs permission to read
+the vault's secrets. Search Console and GA4 then work only if the stored Google credential is a service-account
+key: an `external_account` credential exchanges App Service's managed identity, so on a laptop those two
+collectors record a gap. Fill `console/.env.local` from the console Web App's settings.
 
-To browse production data, point only the console at it: put the `seo_console_login` URL from the console
-Web App's settings in `console/.env.local`. That role reads, and decides approvals, which are then real. Never
-start `python worker.py` (serve mode) against the production database from a laptop: it starts a second
-scheduler beside the one on App Service. Production runs belong in the App Service SSH console.
+In Run and Debug (F5):
+
+| Entry | Does |
+|---|---|
+| Worker: run a workflow | asks for project, workflow and run key, loads `.env`, stops at breakpoints |
+| Worker: check Google access | `worker.py check-google`: does the credential resolve and see the Search Console and GA4 properties; writes nothing |
+| Console: next dev | the console at `http://localhost:3000/?token=<CONSOLE_ACCESS_TOKEN>` (Chrome, Edge or Firefox: the sign-in cookie is `Secure`, which they accept on localhost) |
+
+The Testing panel runs pytest, and Terminal, Run Task, **Checks before pushing** runs the CLAUDE.md list.
+
+A run started here is a production run: it writes production rows, spends from the project's budget, and runs
+the code in your checkout rather than the deployed image. Code reaches App Service only by a push (the image
+workflows build on pushes to `main` and `claude/charming-wozniak-osrmal`) and a restart. There is deliberately
+no entry for `python worker.py` without arguments: that serves the webhooks and starts a second scheduler beside
+the one on App Service. In a plain terminal, load `.env` first: `set -a && . ./.env && set +a`. Approvals
+decided in a local console are real too.
+
+Tests never see `.env`: the root `conftest.py` strips the database URL and the API keys, and the `db` tests
+refuse a Supabase URL, since they drop the schema.
+
+### Database tests and a local database (optional)
+
+```bash
+docker compose up -d       # Postgres 16 on 127.0.0.1:5433 with seo_dev and seo_test
+SEO_TEST_DATABASE_URL=postgresql://postgres@localhost:5433/seo_test pytest
+python scripts/local_db.py # seo_dev: migrations, login roles (password "local"), projects; prints the URLs
+```
+
+Tests marked `db` need a Postgres reachable at `SEO_TEST_DATABASE_URL` (add it to `.env` for the Testing panel);
+they rebuild the schema per session. Without it they skip, and CI runs them on every push. Point `.env` and
+`console/.env.local` at the URLs `local_db.py` prints to try a change without touching production; that
+database starts empty except for the projects, and a workflow calling DataForSEO or a model still spends real
+money.
 
 Checks before pushing:
 
@@ -88,9 +110,6 @@ python evals/run_evals.py            # deterministic + gullible fake verifier
 python evals/run_evals.py --live     # with the real verifier (ANTHROPIC_API_KEY)
 cd console && npm run typecheck
 ```
-
-Tests marked `db` need a Postgres reachable at `SEO_TEST_DATABASE_URL`; they rebuild the schema per session.
-Without it those tests skip.
 
 ## Deploying
 

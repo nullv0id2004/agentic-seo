@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import os
 import uuid
+from urllib.parse import urlsplit
 
 import pytest
 
 from db.migrate import apply_migrations
 
 TEST_URL = os.environ.get("SEO_TEST_DATABASE_URL")
+# db_url drops the public schema: never let that point at the production database.
+if TEST_URL and (urlsplit(TEST_URL).hostname or "").endswith((".supabase.co", ".supabase.com")):
+    raise pytest.UsageError("SEO_TEST_DATABASE_URL points at Supabase; the db tests drop its schema. Use a local Postgres.")
 
 
 def _db_available() -> bool:

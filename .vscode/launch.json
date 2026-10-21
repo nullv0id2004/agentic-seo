@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "inputs": [
+    { "id": "project", "type": "pickString", "description": "Project", "options": ["korum", "worldhire", "rejuveluxe"], "default": "korum" },
+    { "id": "workflow", "type": "pickString", "description": "Workflow",
+      "options": ["link_plan", "competitor_overview", "daily_rank", "daily_collect", "daily_probe", "weekly_monitor",
+                  "monthly_full", "quarterly_keyword", "content_pipeline", "post_deploy_audit"] },
+    { "id": "key", "type": "promptString", "description": "Run key: a key already used returns that run (and resumes it if it failed)" }
+  ],
+  "configurations": [
+    {
+      "name": "Worker: run a workflow",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/worker.py",
+      "args": ["run", "${input:project}", "${input:workflow}", "${input:key}"],
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Worker: check Google access",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/worker.py",
+      "args": ["check-google", "${input:project}"],
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Console: next dev",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/console"
+    }
+  ]
+}
