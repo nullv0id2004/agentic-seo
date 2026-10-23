@@ -45,7 +45,11 @@ worker.py                App Service entrypoint: webhook server + one-minute sch
 
 ## Running locally
 
-Needs Python 3.12 and Node 22. On Windows, use WSL2 (the commands below are bash).
+Needs Python 3.12 and Node 22. On Windows, use WSL2 (the commands below are bash), or work natively from Git Bash:
+Python 3.12 or 3.13 both pass the suite; the venv's interpreter is `.venv/Scripts/python`, not `.venv/bin/python`;
+and without Docker the db tests can use the portable PostgreSQL 16 binaries (EDB's zip: `initdb -U postgres -A trust`,
+then `pg_ctl -o "-p 5433" start` and create `seo_test`). Git Bash rewrites arguments that look like paths, so set
+`MSYS_NO_PATHCONV=1` before `az` commands that take a `/subscriptions/...` scope.
 
 ### Working from VS Code against the production database
 
@@ -115,8 +119,9 @@ cd console && npm run typecheck
 
 1. Create a **new, dedicated** Supabase project for the SEO system. Never install this schema into an application
    database (Section 13.1): the KORUM production and preprod projects are off limits.
-   Apply the migrations in order (`db/migrations/0001..0004`), either with the CLI or by pasting each file into
-   the SQL editor; they are plain SQL and idempotent. Then create the login roles and seed the projects:
+   Apply the migrations in order (`db/migrations/0001..0019`), either with the CLI or by pasting each file into
+   the SQL editor; they are plain SQL and idempotent. A migration a release depends on goes in before the push:
+   the worker image is pulled as soon as it is built. Then create the login roles and seed the projects:
    ```bash
    SEO_DATABASE_URL=postgresql://postgres:...@db.xxx.supabase.co:5432/postgres python -m db.migrate
    psql "$SEO_DATABASE_URL" -c "create role seo_worker_login login password '...' in role seo_worker;"

@@ -1,8 +1,9 @@
-# Handoff: agentic-seo + korum site, state as of 22 Oct 2026
+# Handoff: agentic-seo + korum site, state as of 23 Oct 2026
 
 Context carried over from a Claude Code on the web session so work can continue in Claude Code in
-VS Code. Read this after `CLAUDE.md`. Facts here were true on 22 Oct 2026; re-check anything live
-(database, deploys) before acting on it.
+VS Code. Read this after `CLAUDE.md`. Sections 1-3, 6 and 7 were updated on 23 Oct 2026 (PageSpeed release,
+local setup on Windows); sections 4 and 5 are still as of 22 Oct. Re-check anything live (database, deploys)
+before acting on it.
 
 ## 1. The two repositories
 
@@ -12,11 +13,18 @@ VS Code. Read this after `CLAUDE.md`. Facts here were true on 22 Oct 2026; re-ch
 | `nullv0id2004/Worldhire2.0-1-` | The site the SEO system works on: korum.worldhire.com (Next.js frontend + FastAPI backend) | `main`; short-lived `fix/…` / `feat/…` branches | its own `CLAUDE.md` (large; read sections, not all of it) |
 
 Infrastructure:
-- SEO database: Supabase project `Agentic-seo`, ref `hsqssnbpuvvudevvvtvl`. Migrations 0001-0018 applied
-  in production. Never apply anything to the `Korum` or `korum-preprod` Supabase projects (application databases).
-- Worker: Azure App Service (image `ghcr.io/<owner>/seo-agents-worker`), host
-  `seo-agents-worker-hpgtchazdqdshwax.westeurope-01.azurewebsites.net`. Console: separate Azure Web App.
-- LLM: OpenAI (`SEO_LLM_PROVIDER=openai`). Data: DataForSEO. No PageSpeed key yet.
+- SEO database: Supabase project `Agentic-seo`, ref `hsqssnbpuvvudevvvtvl`. Migrations 0001-0019 applied
+  in production (0019 on 23 Oct, through the Supabase connector like 0015-0018; `schema_migrations` only
+  records 0001-0008). Never apply anything to the `Korum` or `korum-preprod` Supabase projects (application databases).
+- Azure: subscription "Azure subscription 1", resource group `seo-agents-rg` (the same subscription holds the
+  KORUM application's Web Apps: never touch them). Key Vault `seo-agents-kv` (RBAC).
+- Worker: Web App `seo-agents-worker` (image `ghcr.io/nullv0id2004/seo-agents-worker:latest`), host
+  `seo-agents-worker-hpgtchazdqdshwax.westeurope-01.azurewebsites.net`, `/healthz`. Pulls a new image by itself
+  after `worker-image` builds (repository secret `AZURE_CD_WEBHOOK_URL`).
+- Console: Web App `seo-agents-console`, host `seo-agents-console-gwcadzeebngxgzhd.westeurope-01.azurewebsites.net`.
+  No deploy webhook (`AZURE_CONSOLE_CD_WEBHOOK_URL` unset): restart it by hand after `console-image` builds.
+- LLM: OpenAI (`SEO_LLM_PROVIDER=openai`). Data: DataForSEO and PageSpeed Insights (`PAGESPEED_API_KEY` set on
+  the worker as of 23 Oct).
 - Projects: `korum` (main target, korum.worldhire.com), `worldhire` (measure-only), `rejuveluxe` (halted:
   protected routes reachable). Cruise Guru is not a tenant.
 - Site deploys: merge to `main` deploys to pre-prod automatically; production is a manual
@@ -33,11 +41,17 @@ Infrastructure:
   once; new features only when the owner agrees.
 - Tests never touch production: root `conftest.py` strips `SEO_DATABASE_URL` and API keys; `tests/conftest.py`
   refuses a Supabase `SEO_TEST_DATABASE_URL` (the db tests drop the schema).
+- SEO repo releases: a migration the code needs is applied before the push, because the worker pulls the new
+  image as soon as it is built. Production migrations and deploys happen only on the owner's explicit go; the
+  auto-mode check blocks them otherwise, and it also blocks writing production credentials to local files.
 
 ## 3. What was built (agentic-seo, newest first)
 
 | Commit | What |
 |---|---|
+| d910f43 | CLAUDE.md: migration 0019 applied |
+| bbea46c | PageSpeed (deployed 23 Oct): the vitals collector measures the homepage plus the most-clicked Search Console pages (`vitals_page_limit`, default 10, protected routes skipped); stores score, FCP, TBT, TTFB, CrUX category and the top 5 suggested fixes; CrUX origin fallback stored once per strategy as `field_scope = 'origin'`, not as the page's own; `page_speed` workflow on demand; `post_deploy_audit` measures up to 5 pages; `lcp_slow` / `inp_slow` / `cls_high` issues now close when the same measurement comes back under; console Technical tab columns + Speed fixes table; migration 0019; `tests/test_psi.py` |
+| 548b368 | Read project files as UTF-8 everywhere (on Windows `read_text()` was cp1252 and broke the em-dash brand rules) |
 | c55d2f0 | VS Code setup: `.vscode/` launch entries (run a workflow, check Google access, console dev), pre-push task; README "Running locally" leads with VS Code against Supabase; test env scrub + Supabase guard |
 | e98196f | `docker-compose.yml` (Postgres 16 on 127.0.0.1:5433, `seo_dev` + `seo_test`), `scripts/local_db.py` (localhost-only: migrations, login roles, seed) |
 | 1a02f62 | Competitor overview (DataForSEO Labs: traffic, keywords, history, top pages), backlink changes (new/lost per month), daily rank tracking (`daily_rank` 06:15 IST, top `projects.rank_tracking_limit` keywords, korum = 25); migration 0018; console pages Competitor overview, Backlinks, Rankings (visibility) |
@@ -47,7 +61,7 @@ Infrastructure:
 | e8fccce | Keyword and backlink gap; console sidebar redesign |
 
 Workflows: `python worker.py run <slug> <workflow> <key>` (a reused key returns that run). Workflows:
-link_plan, competitor_overview, daily_rank, daily_collect, daily_probe, weekly_monitor, monthly_full,
+page_speed, link_plan, competitor_overview, daily_rank, daily_collect, daily_probe, weekly_monitor, monthly_full,
 quarterly_keyword, content_pipeline, post_deploy_audit.
 
 ## 4. Site repo work (Worldhire2.0-1-)
@@ -71,7 +85,7 @@ quarterly_keyword, content_pipeline, post_deploy_audit.
   show the post-split state. 34 korum URLs "unknown to Google" at last inspection (19 Oct).
 - Empty until #7 runs: raw_domain_overview, raw_backlink_changes, raw_link_pages. Last link plan 16 Oct.
 - Gaps (8 days): header_probe "sitemap returned 404" (22 Oct, fixed since), SERP 40101 (18 Oct, once),
-  PageSpeed key missing, worldhire "no tracked keywords" (weekly).
+  PageSpeed key missing (set 23 Oct; no measurement with it yet), worldhire "no tracked keywords" (weekly).
 - Stuck approval: worldhire open_fix_pr from 12 Oct (index_canonical_mismatch on worldhire.com/sitemap).
 - `/dashboard`, `/recruiter/inbox`, `/recruiter/jobs` return 200 with "index, follow" in HTML but send
   `X-Robots-Tag: noindex, nofollow`; not a violation, korum is not halted.
@@ -92,7 +106,8 @@ Critical / High
 - #27 Claude · High: link-building analyst, done when `link_plan links-2` gives clean prospects.
 
 Medium
-- #6 You: PageSpeed API key on the worker.
+- #6 You: PageSpeed API key on the worker. **Done 23 Oct.** Next: run `page_speed` for korum (free) to see the
+  first results and confirm the parser against a live response; the monthly run (4 Nov) then covers every project.
 - #7 You: run `link_plan links-2` and `competitor_overview co-1` (VS Code F5 "Worker: run a workflow").
 - #15, #16, #18 Claude: competitor overview, backlink changes, directory tracker; built, waiting on #7 data.
 - #17 Claude: daily rank tracking; done when the owner confirms the Rankings trend.
@@ -100,6 +115,7 @@ Medium
 - #31 You: site repo variable `SEO_WORKER_URL` lacks `https://`, so deploy notifications get HTTP 301 and no
   post_deploy_audit runs. Set it to `https://seo-agents-worker-hpgtchazdqdshwax.westeurope-01.azurewebsites.net`;
   audit today's deploy with `python worker.py run korum post_deploy_audit deploy:9f3153856d23102021508734cb2435720f2ec88e`.
+  Since 23 Oct this also blocks the post-deploy PageSpeed check: no site deploy reaches the worker until it is fixed.
 
 Low
 - #9 You: outreach drafts decision (repo vs production). #10 You: confirm fix PRs can be opened in Worldhire2.0-1-.
@@ -120,3 +136,10 @@ Suggested next builds (not agreed): brand mention monitoring (#20), then alerts 
 - Never start `python worker.py` without arguments against production from a laptop: a second scheduler.
 - The cloud sandbox could not reach korum.worldhire.com; live checks went through Firecrawl (credits ran out
   on 22 Oct).
+- The owner's laptop (23 Oct) is native Windows with Git Bash: no Docker, no WSL, Python 3.13 (passes the suite).
+  The venv interpreter is `.venv/Scripts/python`. There is no SSH key for GitHub: push over HTTPS with the
+  GitHub CLI login, `git -c credential.helper= -c credential.helper='!gh auth git-credential' push
+  https://github.com/nullv0id2004/agentic-seo.git <branch>`. Call the Azure CLI as
+  `"/c/Program Files/Microsoft SDKs/Azure/CLI2/python.exe" -m azure.cli ...` (`az.cmd` breaks quoted `--query`
+  arguments) and set `MSYS_NO_PATHCONV=1` for `/subscriptions/...` scopes. The laptop's `.env` and
+  `console/.env.local` hold the production values, so a workflow started there is a production run.
