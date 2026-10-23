@@ -19,8 +19,11 @@ def test_rules_are_per_project_not_portable():
     assert any("curated" in p for p in korum_patterns)
     assert not any("curated" in p for p in rl_patterns)
     assert "—" in korum_patterns and "—" in rl_patterns
-    assert {c.rule_key for c in by["korum"].critical_rules} >= {"no_jobposting_schema"}
-    assert "no_jobposting_schema" not in {c.rule_key for c in by["worldhire"].critical_rules}
+    # korum's job pages carry JobPosting for Google for Jobs (owner's decision, 2026-10-23), as worldhire's do
+    for slug in ("korum", "worldhire"):
+        assert "JobPosting" in by[slug].allowed_schema_types
+        assert not any(c.assertion == "schema_type_forbidden:JobPosting" for c in by[slug].critical_rules)
+    assert {c.rule_key for c in by["korum"].critical_rules} >= {"no_indexable_auth_route", "auth_routes_absent_from_sitemap"}
 
 
 def test_cruise_guru_rejected():

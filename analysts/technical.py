@@ -42,6 +42,8 @@ SCHEMA_CHILDREN: dict[str, frozenset[str]] = {
     "Organization": frozenset({"PostalAddress", "ContactPoint", "ImageObject"}),
     "LocalBusiness": frozenset({"PostalAddress", "ContactPoint", "ImageObject", "GeoCoordinates", "OpeningHoursSpecification"}),
     "Product": frozenset({"Offer", "AggregateOffer", "AggregateRating", "Review", "Rating", "Brand", "ImageObject", "Person", "Organization"}),
+    # hiringOrganization, jobLocation (Place, PostalAddress, GeoCoordinates), baseSalary (MonetaryAmount, QuantitativeValue), identifier
+    "JobPosting": frozenset({"Organization", "Place", "PostalAddress", "GeoCoordinates", "MonetaryAmount", "QuantitativeValue", "PropertyValue"}),
 }
 
 

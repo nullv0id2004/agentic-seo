@@ -13,7 +13,8 @@ monthly_content_cap: 4
 # Tracked keywords whose Google rank is checked every day (06:15 IST); mapped keywords first, then by volume.
 rank_tracking_limit: 25
 enabled_agents: [technical, keyword, onpage, content, offpage, trend, linkbuilding, report]
-allowed_schema_types: [Organization, WebSite, Article, FAQPage, BreadcrumbList]
+# JobPosting is intended (owner's decision, 2026-10-23): the job pages are in the sitemap for Google for Jobs.
+allowed_schema_types: [Organization, WebSite, Article, FAQPage, BreadcrumbList, JobPosting]
 critical_paths: [/dashboard, /dashboard/, /recruiter, /recruiter/, /recruiter/inbox, /recruiter/jobs, /admin, /admin/, /api/health]
 critical_rules:
   - key: no_indexable_auth_route
@@ -22,9 +23,6 @@ critical_rules:
   - key: auth_routes_absent_from_sitemap
     url_pattern: '^/(dashboard|recruiter|admin)(/|$)'
     assertion: must_not_appear_in_sitemap
-  - key: no_jobposting_schema
-    url_pattern: '.*'
-    assertion: schema_type_forbidden:JobPosting
 brand_rules:
   - {type: char_ban,      pattern: '—',                                   severity: block, rationale: 'no em dashes'}
   - {type: banned_phrase, pattern: '(curated|hand-picked|AI-powered)',    severity: block}

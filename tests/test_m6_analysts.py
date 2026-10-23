@@ -289,6 +289,8 @@ def test_nested_jsonld_types_of_an_allowed_parent_are_not_disallowed():
     assert {"Question", "Answer", "ListItem", "SearchAction"} <= allowed
     assert "JobPosting" not in allowed and "Product" not in allowed
     assert allowed_schema_types(None) == set(), "no declared list means the check is off"
+    # Run 52d25e67: 402 'critical' issues on korum's job pages were the parts a JobPosting is made of
+    assert {"Place", "PostalAddress", "MonetaryAmount", "QuantitativeValue"} <= allowed_schema_types(["JobPosting"])
 
 
 def test_onpage_checks_skip_non_html_and_header_noindex_pages(worker_url, seeded):
