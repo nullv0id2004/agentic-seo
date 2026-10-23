@@ -91,6 +91,27 @@ def test_vitals_page_limit_is_bounded_and_defaults_to_ten():
             ProjectConfig.model_validate({**base, "vitals_page_limit": bad})
 
 
+def test_technical_explains_a_large_audit_in_batches():
+    """Run 52d25e67: 703 issues from 150 job pages went to the model in one call and the reply was cut off mid-JSON."""
+    import math
+
+    from analysts import technical
+    from analysts.base import AnalystContext, AnalystInput
+    from llm.fake import FakeLLM
+    from tests.test_orchestrator_m4 import explain
+
+    pages = [{"id": uuid.uuid4(), "url": f"https://korum.worldhire.com/jobs/{n}", "status_code": 200, "word_count": 400,
+              "title": f"Job {n}", "h1": [], "meta_description": "d", "canonical": f"https://korum.worldhire.com/jobs/{n}"} for n in range(95)]
+    rows = {"raw_crawl_pages": pages, "raw_vitals": [], "raw_sitemap_urls": [], "critical_rules": [], "raw_url_inspection": []}
+    inp = AnalystInput(project=_project(), run_id=uuid.uuid4(), rows=rows)
+    llm = FakeLLM({"technical": explain})
+    report = technical.run(AnalystContext(llm=llm, model="fake"), inp)
+    explained = [d for d in technical.detect(inp) if d.issue_type not in technical.INDEX_ISSUE_TYPES]
+    assert len(explained) >= 95
+    assert len(llm.calls) == math.ceil(len(explained) / technical.EXPLAIN_BATCH) > 1
+    assert all(i.recommended_fix == f"Fix {i.issue_type}." for i in report.issues), "every issue got its own batch's explanation"
+
+
 def test_page_speed_is_a_free_registered_workflow():
     from orchestrator import budget
     from orchestrator.runner import WORKFLOWS, _load_workflows
@@ -174,10 +195,22 @@ def test_vitals_urls_follow_search_console_clicks_and_skip_protected_routes(work
                              ("https://korum.worldhire.com/recruiter/inbox", 500), ("https://korum.worldhire.com/about", 50)):
             s.insert("raw_gsc_performance", {"run_id": run_id, "date": "today", "page": page, "clicks": clicks})
         s.insert("raw_gsc_performance", {"run_id": run_id, "date": "2020-01-01", "page": "https://korum.worldhire.com/old", "clicks": 9999})
+    sitemap_run = uuid.uuid4()   # other tests' crawls leave their own sitemap behind; this one is the latest
+    with project_scope(project.id, caller="collector:site_crawl", url=worker_url) as s:
+        for page in ("jobs", "about", "recruiter/inbox", "old"):
+            s.insert("raw_sitemap_urls", {"run_id": sitemap_run, "sitemap_url": HOME + "sitemap.xml", "url": f"https://korum.worldhire.com/{page}"})
     with project_scope(project.id, url=worker_url) as s:
         urls = vitals_urls(s, project, 10)
     assert urls[:3] == [HOME, "https://korum.worldhire.com/jobs", "https://korum.worldhire.com/about"]
     assert not any("/recruiter/" in u or u.endswith("/old") for u in urls)
+
+    # Run 52d25e67: Search Console still had clicks for pages that now redirect off the site. Once a sitemap has
+    # been read, only Search Console pages it lists are measured; the homepage always is.
+    with project_scope(project.id, caller="collector:site_crawl", url=worker_url) as s:
+        s.insert("raw_sitemap_urls", {"run_id": uuid.uuid4(), "sitemap_url": HOME + "sitemap.xml", "url": "https://korum.worldhire.com/jobs"})
+    with project_scope(project.id, url=worker_url) as s:
+        urls = vitals_urls(s, project, 10)
+    assert urls == [HOME, "https://korum.worldhire.com/jobs"], "/about is not in the latest sitemap"
 
 
 @requires_db

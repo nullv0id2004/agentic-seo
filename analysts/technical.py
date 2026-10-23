@@ -26,6 +26,7 @@ LCP_MS = 2500
 INP_MS = 200
 CLS = 0.1
 THIN_WORDS = 100
+EXPLAIN_BATCH = 40   # issues per model call; each explanation is a few sentences plus a coding prompt
 
 # Nested nodes that an allowed top-level type is made of. The crawler records every @type in a page's
 # JSON-LD, nested ones included, so FAQPage must bring Question and Answer with it. Deterministic rule,
@@ -298,11 +299,15 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> TechnicalReport:
     # Index issues are explained in code (index_fix); the model explains the rest.
     listing = [{"index": i, "issue_type": d.issue_type, "severity": d.severity, "url": d.url, "evidence": d.evidence}
                for i, d in enumerate(detected) if d.issue_type not in INDEX_ISSUE_TYPES]
+    # In batches: run 52d25e67 handed the model 703 issues from 150 job pages in one call and the reply was cut off
+    # mid-JSON at the token limit, failing the whole audit. Each batch keeps the global index, so merging is exact.
     by_index = {}
-    if listing:
-        user = f"Project: {inp.project.display_name} ({inp.project.vertical}). Issues:\n{json.dumps(listing, indent=1)}"
+    for start in range(0, len(listing), EXPLAIN_BATCH):
+        batch = listing[start:start + EXPLAIN_BATCH]
+        user = f"Project: {inp.project.display_name} ({inp.project.vertical}). Issues:\n{json.dumps(batch, indent=1)}"
         exp = ctx.complete(agent=NAME, system=SYSTEM, user=user, schema=_Explanations, max_tokens=8192)
-        by_index = {e.index: e for e in exp.explanations}
+        wanted = {i["index"] for i in batch}
+        by_index.update({e.index: e for e in exp.explanations if e.index in wanted})
     issues = []
     for i, d in enumerate(detected):
         if d.issue_type in INDEX_ISSUE_TYPES:
