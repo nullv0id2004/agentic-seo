@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 
 from orchestrator import approvals, critical, notify
 from orchestrator.gate_runner import analyse_and_gate, issue_fingerprint, resolve_unseen_issues
+from orchestrator.graphs.page_speed import vitals_urls
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
 
@@ -46,6 +47,9 @@ def build(rt: Runtime) -> StateGraph:
                 cparams = {"paths": list(project.critical_paths)}
             elif name == "site_crawl":
                 cparams = {"max_pages": params.get("max_pages", 300)}
+            elif name == "vitals":   # after gsc_performance, so this month's clicks pick the pages
+                with rt.scope(project.id) as s:
+                    cparams = {"urls": vitals_urls(s, project, project.vitals_page_limit)}
             res = rt.run_collector(project, run_id, name, cparams)
             out[name] = {"rows_written": res.rows_written, "gaps": res.gaps, "partial": res.partial}
             if name == "header_probe" and res.detail.get("violations"):

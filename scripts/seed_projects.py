@@ -36,7 +36,7 @@ def print_sql() -> None:
             "allowed_schema_types": cfg.allowed_schema_types, "monthly_content_cap": cfg.monthly_content_cap,
             "critical_paths": cfg.critical_paths, "github_repo": cfg.github_repo, "cms_publish_url": cfg.cms_publish_url,
             "keyword_seeds": cfg.keyword_seeds, "brand_context_terms": cfg.brand_context_terms, "competitors": cfg.competitors, "description": cfg.description,
-            "rank_tracking_limit": cfg.rank_tracking_limit,
+            "rank_tracking_limit": cfg.rank_tracking_limit, "vitals_page_limit": cfg.vitals_page_limit,
         }
         updates = ", ".join(f"{k} = excluded.{k}" for k in cols if k != "slug")
         print(f"insert into projects ({', '.join(cols)}) values ({', '.join(_lit(v) for v in cols.values())})")

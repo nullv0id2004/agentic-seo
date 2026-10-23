@@ -142,7 +142,7 @@ cd console && npm run typecheck
 
 | Workflow | Trigger | Nodes |
 |---|---|---|
-| `post_deploy_audit` | deploy webhook (`/webhooks/deploy` with bearer `DEPLOY_WEBHOOK_SECRET`, or Vercel's signed hook), keyed on deployment id | header_probe, site_crawl (delta), technical_analyst, gate, approvals |
+| `post_deploy_audit` | deploy webhook (`/webhooks/deploy` with bearer `DEPLOY_WEBHOOK_SECRET`, or Vercel's signed hook), keyed on deployment id | header_probe, site_crawl (delta), vitals (up to 5 pages), technical_analyst, gate, approvals |
 | `daily_probe` / `daily_collect` | cron 07:00 / 05:30 IST | header_probe on critical paths / gsc_performance for one day |
 | `weekly_monitor` | cron Mon 06:00 IST | serp, search_status, trend_analyst, gate, report append |
 | `monthly_full` | cron 4th 06:00 IST | all collectors, all enabled analysts, gate, report, approvals digest |
@@ -151,6 +151,7 @@ cd console && npm run typecheck
 | `daily_rank` | cron 06:15 IST, projects with `rank_tracking_limit` > 0 | serp for the top tracked keywords (mapped first, then by volume) |
 | `competitor_overview` | manual: `python worker.py run <slug> competitor_overview <key>` (monthly_full runs it too) | competitor_overview collector |
 | `link_plan` | manual: `python worker.py run <slug> link_plan <key>` | site_crawl, backlink_gap, linkbuilding_analyst, gate (refreshes the link plan between monthly runs) |
+| `page_speed` | manual: `python worker.py run <slug> page_speed <key>` | vitals for the top pages (measure now; issues are raised and closed by the monthly and deploy runs) |
 
 Projects are staggered twenty minutes apart so shared API keys are not hit at once. Approved rows are executed
 on the next scheduler tick.
@@ -273,3 +274,24 @@ built from the project's own rows. It never drafts outreach and nothing it produ
   tracked keywords the `daily_rank` workflow checks every day (Google India, desktop, top 20); the weekly monitor
   still checks every keyword. The Rank tracking page shows visibility (the CTR-weighted share of the clicks the
   tracked keywords could bring), each keyword's daily trend and best competitor, and who else ranks for them.
+
+## Page speed (PageSpeed Insights)
+
+The `vitals` collector (`collectors/psi.py`) calls the PageSpeed Insights API for mobile and desktop and stores
+one lab row (Lighthouse: performance score, LCP, FCP, TBT, CLS, server response time, the five failing audits with
+the largest estimated saving) and one field row (CrUX, real Chrome users over 28 days) per page in `raw_vitals`
+(migration 0019). A page with too little traffic gets CrUX's numbers for the whole site; those are stored once per
+strategy against the origin (`field_scope = 'origin'`), never as the page's own.
+
+- **Which pages:** the homepage, then the pages with the most Search Console clicks in the last 28 days, up to
+  `vitals_page_limit` in `config/projects/<slug>.yaml` (1 to 25, default 10). A deploy audit puts the changed pages
+  right after the homepage and measures at most 5. Protected routes are never measured.
+- **When:** the monthly run, every post-deploy audit, and on demand with the `page_speed` workflow.
+- **Issues:** the technical analyst raises `lcp_slow`, `inp_slow` and `cls_high` above 2,500 ms, 200 ms and 0.1.
+  One closes when a later run measures the same page the same way (strategy, lab or field) and no longer flags it.
+- **Key:** in Google Cloud Console, enable the PageSpeed Insights API (APIs & Services, Library), create an API key
+  (Credentials, Create credentials, API key) and restrict it to that API. Do not add a website restriction: the
+  worker calls from a server, with no referrer. Set it as `PAGESPEED_API_KEY` in the worker Web App's application
+  settings (and in `.env` locally). Without it the collector records a gap and measures nothing.
+
+The console's Technical tab shows the latest measurement per page and a Speed fixes table.

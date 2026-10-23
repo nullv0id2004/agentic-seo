@@ -3,7 +3,7 @@
   "inputs": [
     { "id": "project", "type": "pickString", "description": "Project", "options": ["korum", "worldhire", "rejuveluxe"], "default": "korum" },
     { "id": "workflow", "type": "pickString", "description": "Workflow",
-      "options": ["link_plan", "competitor_overview", "daily_rank", "daily_collect", "daily_probe", "weekly_monitor",
+      "options": ["page_speed", "link_plan", "competitor_overview", "daily_rank", "daily_collect", "daily_probe", "weekly_monitor",
                   "monthly_full", "quarterly_keyword", "content_pipeline", "post_deploy_audit"] },
     { "id": "key", "type": "promptString", "description": "Run key: a key already used returns that run (and resumes it if it failed)" }
   ],

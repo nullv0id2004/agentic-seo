@@ -116,12 +116,14 @@ def detect(inp: AnalystInput) -> list[Detected]:
                                     f"JSON-LD type {t} is not in the allowed list {sorted(project.allowed_schema_types or [])}", p["id"]))
     # high: vitals
     for v in vitals:
+        # origin rows are CrUX's numbers for the whole site, stored against the origin rather than any one page
+        src = "field, whole site" if v.get("field_scope") == "origin" else v["source"]
         if v.get("lcp_ms") is not None and v["lcp_ms"] > LCP_MS:
-            out.append(Detected("lcp_slow", "high", v["url"], f"LCP {v['lcp_ms']:.0f}ms ({v['strategy']}, {v['source']}) above {LCP_MS}ms", v["id"]))
+            out.append(Detected("lcp_slow", "high", v["url"], f"LCP {v['lcp_ms']:.0f}ms ({v['strategy']}, {src}) above {LCP_MS}ms", v["id"]))
         if v.get("inp_ms") is not None and v["inp_ms"] > INP_MS:
-            out.append(Detected("inp_slow", "high", v["url"], f"INP {v['inp_ms']:.0f}ms ({v['strategy']}, {v['source']}) above {INP_MS}ms", v["id"]))
+            out.append(Detected("inp_slow", "high", v["url"], f"INP {v['inp_ms']:.0f}ms ({v['strategy']}, {src}) above {INP_MS}ms", v["id"]))
         if v.get("cls") is not None and v["cls"] > CLS:
-            out.append(Detected("cls_high", "high", v["url"], f"CLS {v['cls']:.3f} ({v['strategy']}, {v['source']}) above {CLS}", v["id"]))
+            out.append(Detected("cls_high", "high", v["url"], f"CLS {v['cls']:.3f} ({v['strategy']}, {src}) above {CLS}", v["id"]))
     # high: canonical loops
     for p in pages:
         c = p.get("canonical")

@@ -147,7 +147,7 @@ export async function OverviewTab({ projectId, slug, range, project }: TabProps)
                 ["SERP rankings", fmtDate(d.freshness.serp), "weekly"],
                 ["AI visibility", fmtDate(d.freshness.ai), "weekly"],
                 ["Keyword metrics", fmtDate(d.freshness.keywords), "quarterly"],
-                ["Core Web Vitals", fmtDate(d.freshness.vitals), "monthly, needs a PageSpeed key"],
+                ["Core Web Vitals", fmtDate(d.freshness.vitals), "monthly and after each deploy, needs a PageSpeed key"],
               ] as const).map(([k, v, c]) => (
                 <tr key={k}><td>{k}</td><td className="nowrap">{v || <span className="muted">never</span>}</td><td className="muted small">{c}</td></tr>
               ))}

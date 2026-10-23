@@ -18,6 +18,10 @@ CRAWL_ISSUE_TYPES = frozenset({
     "missing_h1", "multiple_h1", "thin_content", "missing_canonical",
     "offer_schema_incomplete", "out_of_stock_without_handling", "product_price_matches_schema", "variant_canonical",
 })
+# Vitals issues close when this run measured the same page the same way (strategy, lab or field, page or origin)
+# and got a value for the metric without flagging it again. The issue's evidence_ref is the raw_vitals row it was
+# raised on; a run that did not measure that page says nothing about it.
+VITALS_ISSUE_TYPES = frozenset({"lcp_slow", "inp_slow", "cls_high"})
 
 
 def issue_fingerprint(issue: dict[str, Any]) -> str:
@@ -75,6 +79,20 @@ def resolve_unseen_issues(scope: ProjectScope, run_id: UUID, artifacts: list[dic
                   and url = any(%(inspected)s) and not (fingerprint = any(%(seen)s))""",
             {"types": sorted(INDEX_ISSUE_TYPES), "inspected": inspected, "seen": seen},
         )
+        n += cur.rowcount
+    # Two statements: the scope refuses a write that names a raw_* table, so the read finds them first.
+    remeasured = [r["id"] for r in scope.fetchall(
+        """select i.id from issues i join raw_vitals was on was.project_id = i.project_id and was.id = i.evidence_ref
+            where i.project_id = %(project_id)s and i.status = 'open' and i.issue_type = any(%(types)s) and not (i.fingerprint = any(%(seen)s))
+              and exists (select 1 from raw_vitals cur
+                           where cur.project_id = was.project_id and cur.run_id = %(run_id)s and cur.url = was.url
+                             and cur.strategy is not distinct from was.strategy and cur.source is not distinct from was.source
+                             and coalesce(cur.field_scope, 'url') = coalesce(was.field_scope, 'url')
+                             and case i.issue_type when 'lcp_slow' then cur.lcp_ms when 'inp_slow' then cur.inp_ms else cur.cls end is not null)""",
+        {"types": sorted(VITALS_ISSUE_TYPES), "seen": seen, "run_id": run_id})]
+    if remeasured:
+        cur = scope.execute("update issues set status = 'resolved', resolved_at = now() where project_id = %(project_id)s and id = any(%(ids)s)",
+                            {"ids": remeasured})
         n += cur.rowcount
     if n:
         scope.audit("orchestrator", "issues_resolved", {"count": n}, run_id)

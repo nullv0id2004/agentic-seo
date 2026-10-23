@@ -1,7 +1,8 @@
-"""post_deploy_audit: header_probe -> site_crawl (delta) -> technical_analyst -> gate -> approvals.
+"""post_deploy_audit: header_probe -> site_crawl (delta) -> vitals -> technical_analyst -> gate -> approvals.
 
 Triggered by the Vercel deploy webhook. The header probe runs first and a critical rule failure pages
-the owner before anything else happens.
+the owner before anything else happens. Vitals measure the homepage, the changed pages and then the most
+visited ones, at most POST_DEPLOY_PAGES, so a slow release is an issue the same day and a fixed page closes one.
 """
 from __future__ import annotations
 
@@ -11,10 +12,12 @@ from langgraph.graph import END, StateGraph
 
 from orchestrator import approvals, critical
 from orchestrator.gate_runner import issue_fingerprint, resolve_unseen_issues, write_issues
+from orchestrator.graphs.page_speed import vitals_urls
 from orchestrator.graphs.state import RunState
 from orchestrator.runtime import Runtime
 
 WORKFLOW = "post_deploy_audit"
+POST_DEPLOY_PAGES = 5   # two PageSpeed calls each, inside the deploy's audit; the monthly run measures the full list
 
 
 def build(rt: Runtime) -> StateGraph:
@@ -39,6 +42,15 @@ def build(rt: Runtime) -> StateGraph:
         cparams = {"urls": params["changed_urls"]} if params.get("changed_urls") else {"max_pages": params.get("max_pages", 150)}
         res = rt.run_collector(project, run_id, "site_crawl", cparams)
         return {"collectors": {**state.get("collectors", {}), "site_crawl": _cr(res)}}
+
+    def vitals(state: RunState) -> RunState:
+        project = rt.load_project(UUID(state["project_id"]))
+        run_id = UUID(state["run_id"])
+        with rt.scope(project.id) as s:
+            urls = vitals_urls(s, project, min(project.vitals_page_limit, POST_DEPLOY_PAGES),
+                               first=state.get("params", {}).get("changed_urls", []))
+        res = rt.run_collector(project, run_id, "vitals", {"urls": urls})
+        return {"collectors": {**state.get("collectors", {}), "vitals": _cr(res)}}
 
     def technical_analyst(state: RunState) -> RunState:
         project = rt.load_project(UUID(state["project_id"]))
@@ -85,12 +97,14 @@ def build(rt: Runtime) -> StateGraph:
     g = StateGraph(RunState)
     g.add_node("header_probe", header_probe)
     g.add_node("site_crawl", site_crawl)
+    g.add_node("vitals", vitals)
     g.add_node("technical_analyst", technical_analyst)
     g.add_node("gate", gate)
     g.add_node("approvals", queue_approvals)
     g.set_entry_point("header_probe")
     g.add_edge("header_probe", "site_crawl")
-    g.add_edge("site_crawl", "technical_analyst")
+    g.add_edge("site_crawl", "vitals")
+    g.add_edge("vitals", "technical_analyst")
     g.add_edge("technical_analyst", "gate")
     g.add_edge("gate", "approvals")
     g.add_edge("approvals", END)

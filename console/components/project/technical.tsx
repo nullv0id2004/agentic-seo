@@ -8,6 +8,11 @@ const NOINDEX = `(coalesce(robots_meta, '') ilike '%noindex%' or coalesce(x_robo
 const INDEXABLE_HTML = `(status_code = 200 and word_count is not null and not ${NOINDEX})`;
 
 type Violation = { rule_key?: string; url?: string; detail?: string; assertion?: string };
+type Fix = { id?: string; title?: string; display_value?: string | null; savings_ms?: number };
+
+function Over({ value, limit, text }: { value: unknown; limit: number; text: string }) {
+  return value != null && Number(value) > limit ? <span className="pill high">{text}</span> : <>{text}</>;
+}
 
 export async function TechnicalTab({ projectId }: TabProps) {
   const d = await withProject(projectId, async (q) => ({
@@ -58,8 +63,13 @@ export async function TechnicalTab({ projectId }: TabProps) {
     violations: await q(`select output->'violations' as v from agent_logs where project_id = $1 and agent = 'header_probe'
       and run_id = (select id from runs where project_id = $1 and workflow = 'daily_probe' order by started_at desc limit 1)`),
     rules: await q("select rule_key, url_pattern, assertion from critical_rules where project_id = $1 and active order by rule_key"),
-    vitals: await q(`select distinct on (url, strategy, source) url, strategy, source, lcp_ms, inp_ms, cls, collected_at
-      from raw_vitals where project_id = $1 order by url, strategy, source, collected_at desc`),
+    vitals: await q(`select * from (select distinct on (url, strategy, source) url, strategy, source, field_scope, field_category, performance_score,
+        lcp_ms, inp_ms, cls, fcp_ms, ttfb_ms, tbt_ms, collected_at
+      from raw_vitals where project_id = $1 order by url, strategy, source, collected_at desc) v
+      order by (field_scope = 'origin') desc nulls last, url, strategy, source`),
+    fixes: await q(`select distinct on (url, strategy) url, strategy, opportunities, collected_at from raw_vitals
+      where project_id = $1 and source = 'lab' and jsonb_array_length(coalesce(opportunities, '[]'::jsonb)) > 0
+      order by url, strategy, collected_at desc`),
     issues: await q(`select id, severity, issue_type, url, evidence, recommended_fix, last_seen_at, seen_count from issues
       where project_id = $1 and status = 'open' order by array_position(array['critical','high','medium','low'], severity), last_seen_at desc limit 200`),
     issueCounts: (await q(`select count(*) filter (where status = 'open')::int as open, count(*) filter (where status = 'resolved')::int as resolved,
@@ -189,19 +199,42 @@ export async function TechnicalTab({ projectId }: TabProps) {
         </table></div>
       </Section>
 
-      <Section title="Core Web Vitals" note="Lab and field values from PageSpeed Insights. Good: LCP under 2,500 ms, INP under 200 ms, CLS under 0.1.">
+      <Section title="Core Web Vitals" note="PageSpeed Insights, latest per page. Lab is one Lighthouse run; field is real Chrome users over 28 days, for the whole site when a page has too little traffic of its own. Good: LCP under 2,500 ms, INP under 200 ms, CLS under 0.1. Lab has no INP (nobody interacts); TBT stands in for it.">
         <div className="scroll"><table>
-          <thead><tr><th>URL</th><th>Strategy</th><th>Source</th><th className="num">LCP ms</th><th className="num">INP ms</th><th className="num">CLS</th><th>Measured</th></tr></thead>
+          <thead><tr><th>URL</th><th>Strategy</th><th>Source</th><th className="num">Score</th><th className="num">LCP ms</th><th className="num">INP ms</th><th className="num">CLS</th>
+            <th className="num">FCP ms</th><th className="num">TTFB ms</th><th className="num">TBT ms</th><th>Measured</th></tr></thead>
           <tbody>
             {d.vitals.map((v, i) => (
               <tr key={i}>
-                <td className="wrap-anywhere">{pathOf(v.url)}</td><td>{str(v.strategy)}</td><td>{str(v.source)}</td>
-                <td className="num">{fmtInt(v.lcp_ms)}</td><td className="num">{fmtInt(v.inp_ms)}</td>
-                <td className="num">{v.cls == null ? "–" : Number(v.cls).toFixed(3)}</td>
+                <td className="wrap-anywhere">{v.field_scope === "origin" ? <em>whole site</em> : pathOf(v.url)}</td><td>{str(v.strategy)}</td>
+                <td>{str(v.source)}{v.field_category ? <div className="muted small">{str(v.field_category).toLowerCase()}</div> : null}</td>
+                <td className="num">{fmtInt(v.performance_score)}</td>
+                <td className="num"><Over value={v.lcp_ms} limit={2500} text={fmtInt(v.lcp_ms)} /></td>
+                <td className="num"><Over value={v.inp_ms} limit={200} text={fmtInt(v.inp_ms)} /></td>
+                <td className="num"><Over value={v.cls} limit={0.1} text={v.cls == null ? "–" : Number(v.cls).toFixed(3)} /></td>
+                <td className="num">{fmtInt(v.fcp_ms)}</td><td className="num">{fmtInt(v.ttfb_ms)}</td><td className="num">{fmtInt(v.tbt_ms)}</td>
                 <td className="muted nowrap">{fmtDay(v.collected_at)}</td>
               </tr>
             ))}
-            {d.vitals.length === 0 && <Empty cols={7}>No vitals yet. The monthly run measures them once a PageSpeed API key is set (PAGESPEED_API_KEY on the worker).</Empty>}
+            {d.vitals.length === 0 && <Empty cols={11}>No vitals yet. The monthly run, every deploy audit and <code>python worker.py run &lt;slug&gt; page_speed &lt;key&gt;</code> measure them once a PageSpeed API key is set (PAGESPEED_API_KEY on the worker).</Empty>}
+          </tbody>
+        </table></div>
+      </Section>
+
+      <Section title="Speed fixes" note="The failing Lighthouse audits with the largest estimated saving, from each page's latest lab run. Savings are Google's estimate of the time the page would gain.">
+        <div className="scroll"><table>
+          <thead><tr><th>URL</th><th>Strategy</th><th>Fixes, largest saving first</th><th>Measured</th></tr></thead>
+          <tbody>
+            {d.fixes.map((f, i) => (
+              <tr key={i}>
+                <td className="wrap-anywhere">{pathOf(f.url)}</td><td>{str(f.strategy)}</td>
+                <td className="small"><ul>{((f.opportunities as Fix[] | null) ?? []).map((o) => (
+                  <li key={str(o.id)}>{str(o.title)} <span className="muted">(~{fmtInt(o.savings_ms)} ms{o.display_value ? `, ${str(o.display_value)}` : ""})</span></li>
+                ))}</ul></td>
+                <td className="muted nowrap">{fmtDay(f.collected_at)}</td>
+              </tr>
+            ))}
+            {d.fixes.length === 0 && <Empty cols={4}>No suggested fixes yet. They come with the next PageSpeed measurement.</Empty>}
           </tbody>
         </table></div>
       </Section>
