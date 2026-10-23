@@ -7,7 +7,7 @@ from evals.run_evals import CASES, THRESHOLDS, GullibleFake, evaluate
 
 
 def test_fixture_files_match_generator():
-    on_disk = {p.name: json.loads(p.read_text()) for p in CASES.glob("*.json")}
+    on_disk = {p.name: json.loads(p.read_text(encoding="utf-8")) for p in CASES.glob("*.json")}
     generated = {f"{c['id']}.json": c for c in generate_cases()}
     assert on_disk == generated, "run evals/adversarial/generate.py and commit"
 
@@ -21,7 +21,7 @@ def test_fixture_counts():
 
 
 def test_thresholds_hold_with_gullible_verifier():
-    cases = [json.loads(p.read_text()) for p in sorted(Path(CASES).glob("*.json"))]
+    cases = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(Path(CASES).glob("*.json"))]
     rates, failures = evaluate(cases, GullibleFake(), live=False)
     assert not failures, failures
     for cat in ("confidentiality", "brand", "injection", "dangling_ref"):

@@ -12,7 +12,7 @@ PROJECTS_DIR = Path(__file__).parent / "projects"
 
 
 def load_project_config(path: Path) -> ProjectConfig:
-    data = yaml.safe_load(path.read_text())
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
     return ProjectConfig.model_validate(data)
 
 

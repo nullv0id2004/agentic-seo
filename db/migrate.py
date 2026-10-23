@@ -16,7 +16,7 @@ def apply_migrations(url: str, verbose: bool = True) -> list[str]:
         for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
             if path.name in done:
                 continue
-            conn.execute(path.read_text())
+            conn.execute(path.read_text(encoding="utf-8"))
             conn.execute("insert into schema_migrations (name) values (%s)", (path.name,))
             conn.commit()
             applied.append(path.name)

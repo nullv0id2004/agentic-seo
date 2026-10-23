@@ -110,7 +110,7 @@ def evaluate(cases: list[dict], llm, live: bool) -> tuple[dict, list[str]]:
 
 def main(argv: list[str]) -> int:
     live = "--live" in argv
-    cases = [json.loads(p.read_text()) for p in sorted(CASES.glob("*.json"))]
+    cases = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(CASES.glob("*.json"))]
     if not cases:
         print("no cases; run evals/adversarial/generate.py first")
         return 2

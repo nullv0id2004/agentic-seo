@@ -22,7 +22,7 @@ RULES = {
 
 
 def imported_modules(path: Path) -> list[tuple[int, str]]:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     out: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
