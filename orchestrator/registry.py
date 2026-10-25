@@ -59,7 +59,7 @@ for _c, _writes, _reads in [
 ]:
     register(AgentSpec(_c, "collector", reads=_reads, writes=_writes + ("collection_gaps",), network=True))
 
-register(AgentSpec("technical", "analyst", reads=("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules", "raw_url_inspection"), llm=True))
+register(AgentSpec("technical", "analyst", reads=("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules", "raw_url_inspection", "brand_rules"), llm=True))
 register(AgentSpec("ecommerce", "analyst", reads=("raw_crawl_pages", "critical_rules"), llm=True))
 register(AgentSpec("keyword", "analyst", reads=("raw_keyword_metrics", "raw_ai_keyword_metrics", "raw_gsc_performance", "keywords", "critical_rules", "raw_crawl_pages"), llm=True))
 register(AgentSpec("onpage", "analyst", reads=("raw_crawl_pages", "keywords", "brand_rules", "critical_rules"), llm=True))

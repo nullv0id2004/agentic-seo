@@ -5,6 +5,7 @@ volume null; nothing collapses a range into a point estimate.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from collectors import ratelimit
@@ -14,6 +15,14 @@ from config.settings import get_settings
 
 API = "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live"
 DIFFICULTY_API = "https://api.dataforseo.com/v3/dataforseo_labs/google/bulk_keyword_difficulty/live"
+# Google Ads refuses the whole batch (40501 "Invalid Field: 'keywords'") when one keyword has one of these symbols or
+# runs over 80 characters or 10 words. worldhire's quarterly run on 25 Oct lost every metric to the Search Console
+# query "korum?", so the keyword analyst had nothing to track.
+_REFUSED = re.compile(r"[,!@%^()={};~`<>?\\|]")
+
+
+def usable(keyword: str) -> bool:
+    return not _REFUSED.search(keyword) and len(keyword) <= 80 and len(keyword.split()) <= 10
 
 
 def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
@@ -21,6 +30,10 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
     keywords: list[str] = list(params.get("keywords") or [])
     keywords += [r["keyword"] for r in ctx.read("select keyword from keywords where project_id = %(project_id)s order by keyword limit 700")]
     keywords = sorted({k.strip().lower() for k in keywords if k.strip()})
+    for k in keywords:
+        if not usable(k):
+            ctx.gap("keyword has symbols or a length Google Ads refuses", k)
+    keywords = [k for k in keywords if usable(k)]
     if not keywords:
         ctx.gap("no keywords to fetch metrics for", "all")
         return

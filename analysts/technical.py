@@ -1,7 +1,7 @@
 """technical_analyst. Severity is computed in code before the model runs; the model writes only the
 explanation and the claude_code_prompt for each issue it is handed.
 
-Reads: raw_crawl_pages, raw_vitals, raw_sitemap_urls, critical_rules, raw_url_inspection, projects.allowed_schema_types.
+Reads: raw_crawl_pages, raw_vitals, raw_sitemap_urls, critical_rules, raw_url_inspection, brand_rules, projects.allowed_schema_types.
 Emits: TechnicalReport (issues).
 """
 from __future__ import annotations
@@ -17,10 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from analysts.base import AnalystContext, AnalystInput
 from contracts.artifacts import IssueOut, TechnicalReport
+from gate.stage1_rules import blocking_brand_hit
 from rules.indexability import evaluate_critical_rules, indexable_html, rule_matches
 
 NAME = "technical"
-READS = ("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules", "raw_url_inspection")
+READS = ("raw_crawl_pages", "raw_vitals", "raw_sitemap_urls", "critical_rules", "raw_url_inspection", "brand_rules")
 
 LCP_MS = 2500
 INP_MS = 200
@@ -310,17 +311,24 @@ def run(ctx: AnalystContext, inp: AnalystInput) -> TechnicalReport:
         exp = ctx.complete(agent=NAME, system=SYSTEM, user=user, schema=_Explanations, max_tokens=8192)
         wanted = {i["index"] for i in batch}
         by_index.update({e.index: e for e in exp.explanations if e.index in wanted})
+    # Each issue stands alone against the brand rules: worldhire's 25 Oct audit lost all its issues because one fix
+    # text said "candidate" (its /legal/candidate-consent-policy page) and the gate blocked the whole report. Text that
+    # would trip a block rule is replaced by plain text; the issue, its evidence and its URL are kept.
+    brand_rules = inp.table("brand_rules")
+
+    def brand_safe(d: Detected, fix: str, prompt: str | None) -> tuple[str, str | None]:
+        if blocking_brand_hit(f"{fix}\n{prompt or ''}", brand_rules):
+            return f"Fix the {d.issue_type.replace('_', ' ')} described in the evidence.", None
+        return fix, prompt
+
     issues = []
     for i, d in enumerate(detected):
         if d.issue_type in INDEX_ISSUE_TYPES:
-            fix, prompt = index_fix(d)
-            issues.append(IssueOut(evidence_ref=d.evidence_ref, issue_type=d.issue_type, severity=d.severity, url=d.url,
-                                   evidence=d.evidence, recommended_fix=fix, claude_code_prompt=prompt))
-            continue
-        e = by_index.get(i)
-        issues.append(IssueOut(
-            evidence_ref=d.evidence_ref, issue_type=d.issue_type, severity=d.severity, url=d.url, evidence=d.evidence,
-            recommended_fix=(e.recommended_fix if e else INDEX_HINTS.get(d.issue_type) or f"Resolve {d.issue_type}: {d.evidence}"),
-            claude_code_prompt=(e.claude_code_prompt if e else None),
-        ))
+            fix, prompt = brand_safe(d, *index_fix(d))
+        else:
+            e = by_index.get(i)
+            fix, prompt = brand_safe(d, e.recommended_fix if e else INDEX_HINTS.get(d.issue_type) or f"Resolve {d.issue_type}: {d.evidence}",
+                                     e.claude_code_prompt if e else None)
+        issues.append(IssueOut(evidence_ref=d.evidence_ref, issue_type=d.issue_type, severity=d.severity, url=d.url,
+                               evidence=d.evidence, recommended_fix=fix, claude_code_prompt=prompt))
     return TechnicalReport(agent="technical", issues=issues)
