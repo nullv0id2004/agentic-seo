@@ -12,7 +12,9 @@ monthly_cost_cap_usd: 50
 monthly_content_cap: 4
 # Tracked keywords whose Google rank is checked every day (06:15 IST); mapped keywords first, then by volume.
 rank_tracking_limit: 25
-enabled_agents: [technical, keyword, onpage, content, offpage, trend, linkbuilding, report]
+# offpage (outreach pitch drafts) is off until the owner turns outreach back on (2026-10-25, matching production).
+# To turn it on: add offpage here, re-seed, and decide each pitch in the console; nothing is sent without a recipient.
+enabled_agents: [technical, keyword, onpage, content, trend, linkbuilding, report]
 # JobPosting is intended (owner's decision, 2026-10-23): the job pages are in the sitemap for Google for Jobs.
 allowed_schema_types: [Organization, WebSite, Article, FAQPage, BreadcrumbList, JobPosting]
 critical_paths: [/dashboard, /dashboard/, /recruiter, /recruiter/, /recruiter/inbox, /recruiter/jobs, /admin, /admin/, /api/health]
