@@ -96,7 +96,9 @@ def build(rt: Runtime) -> StateGraph:
         run_id = UUID(state["run_id"])
         queued = list(state.get("approvals", []))
         with rt.scope(project.id) as s:
-            for agent in ("technical", "ecommerce"):
+            # No github_repo means fix PRs are off for the project: the issues keep their fix text, nothing is queued
+            # that the github executor would refuse.
+            for agent in ("technical", "ecommerce") if project.github_repo else ():
                 art = state.get("artifacts", {}).get(agent) or {}
                 for issue in art.get("issues", []):
                     if issue["severity"] in ("critical", "high") and issue.get("claude_code_prompt"):

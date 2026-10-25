@@ -78,6 +78,8 @@ def build(rt: Runtime) -> StateGraph:
         if state.get("gate", {}).get("technical", {}).get("blocked"):
             return {"status": "done"}
         issues = state.get("artifacts", {}).get("technical", {}).get("issues", [])
+        if not project.github_repo:   # fix PRs are off for the project; the issues keep their fix text
+            issues = []
         with rt.scope(project.id) as s:
             for issue_id, issue in zip(state.get("issues", []), issues, strict=False):
                 if issue["severity"] in ("critical", "high") and issue.get("claude_code_prompt"):

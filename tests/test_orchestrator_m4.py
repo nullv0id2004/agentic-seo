@@ -209,6 +209,26 @@ def test_recurring_issues_are_one_row_and_one_approval(worker_url, seeded):
     assert a2 == a1, "an issue with a pending fix request does not get another"
 
 
+def test_no_github_repo_means_no_fix_pr_approvals(db_url, worker_url, seeded):
+    """worldhire has no repo the system may open PRs in (owner's decision, 25 Oct): its issues keep their fix text,
+    and nothing is queued that the github executor would refuse ("no github_repo configured")."""
+    import psycopg
+
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        conn.execute("update projects set github_repo = null where id = %s", (seeded["korum"],))
+    project = _project(worker_url, seeded)
+    # the leaked inbox is a critical issue with a fix prompt, the kind that otherwise gets a fix PR
+    h = run_workflow(_rt(worker_url, FakeSite(leaked_inbox=True)), project, "post_deploy_audit", "test", f"deploy:{uuid.uuid4().hex[:8]}")
+    with project_scope(project.id, url=worker_url) as s:
+        fixable = s.fetchone("""select count(*) as n from issues where project_id = %(project_id)s and last_run_id = %(id)s
+                                  and severity in ('critical', 'high') and claude_code_prompt is not null""", {"id": h.id})["n"]
+        prs = s.fetchone("select count(*) as n from approvals where project_id = %(project_id)s and run_id = %(id)s and action_type = 'open_fix_pr'", {"id": h.id})["n"]
+    with psycopg.connect(db_url, autocommit=True) as conn:   # the leak halted the project; later tests expect it running
+        conn.execute("update projects set halted_reason = null where id = %s", (seeded["korum"],))
+    assert fixable > 0, "the audit found issues a PR could fix"
+    assert prs == 0, "but without a repo none is offered"
+
+
 def test_issue_gone_from_a_crawled_page_is_resolved(worker_url, seeded):
     from orchestrator.gate_runner import resolve_unseen_issues, write_issues
 
