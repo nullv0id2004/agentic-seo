@@ -83,6 +83,24 @@ def test_pick_urls_homepage_then_changed_then_most_clicked():
     assert pick_urls(project, top, protected, limit=1) == [HOME]
 
 
+def test_one_page_of_each_template_is_measured_and_the_choice_sticks():
+    """korum's 10,000 job pages had no Search Console clicks, so the job template was never measured."""
+    from orchestrator.graphs.page_speed import kind_of, template_samples
+
+    jobs = [f"https://korum.worldhire.com/jobs/{c}" for c in "dcba"]
+    listed = [*jobs, "https://korum.worldhire.com/jobs", "https://korum.worldhire.com/blog/x", "https://korum.worldhire.com/blog/y",
+              "https://korum.worldhire.com/recruiter/inbox", "https://korum.worldhire.com/recruiter/jobs", "https://korum.worldhire.com/about"]
+    protected = ["^/(dashboard|recruiter|admin|api)(/|$)"]
+    assert kind_of(jobs[0]) == ("jobs", 2) and kind_of("https://korum.worldhire.com/jobs") == ("jobs", 1) and kind_of(HOME) == ("", 0)
+    assert template_samples(listed, protected) == ["https://korum.worldhire.com/jobs/a", "https://korum.worldhire.com/blog/x"], \
+        "largest kind first, a stable pick inside it; one-page kinds and protected routes are not templates"
+    assert template_samples(listed, protected, measured=["https://korum.worldhire.com/jobs/c"])[0] == "https://korum.worldhire.com/jobs/c", \
+        "a page measured before is kept, so its vitals issues can close"
+    got = pick_urls(_project(), ["https://korum.worldhire.com/jobs"], protected, limit=4,
+                    first=["/about"], samples=template_samples(listed, protected))
+    assert got == [HOME, "https://korum.worldhire.com/about", "https://korum.worldhire.com/jobs/a", "https://korum.worldhire.com/blog/x"]
+
+
 def test_vitals_page_limit_is_bounded_and_defaults_to_ten():
     base = {"slug": "x", "vertical": "saas", "domains": ["x.com"], "approver_id": str(uuid.uuid4())}
     assert ProjectConfig.model_validate(base).vitals_page_limit == 10
@@ -211,6 +229,18 @@ def test_vitals_urls_follow_search_console_clicks_and_skip_protected_routes(work
     with project_scope(project.id, url=worker_url) as s:
         urls = vitals_urls(s, project, 10)
     assert urls == [HOME, "https://korum.worldhire.com/jobs"], "/about is not in the latest sitemap"
+
+    # A template with no clicks is still sampled, and the page measured last time is measured again
+    job = lambda c: f"https://korum.worldhire.com/jobs/{c}"  # noqa: E731
+    with project_scope(project.id, caller="collector:site_crawl", url=worker_url) as s:
+        later = uuid.uuid4()
+        for page in ("https://korum.worldhire.com/jobs", job("a"), job("b"), job("c")):
+            s.insert("raw_sitemap_urls", {"run_id": later, "sitemap_url": HOME + "sitemap.xml", "url": page})
+    with project_scope(project.id, caller="collector:vitals", url=worker_url) as s:
+        s.insert("raw_vitals", {"run_id": uuid.uuid4(), "url": job("b"), "strategy": "mobile", "source": "lab", "lcp_ms": 3000})
+    with project_scope(project.id, url=worker_url) as s:
+        urls = vitals_urls(s, project, 10)
+    assert urls == [HOME, job("b"), "https://korum.worldhire.com/jobs"]
 
 
 @requires_db

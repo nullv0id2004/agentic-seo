@@ -288,7 +288,9 @@ the largest estimated saving) and one field row (CrUX, real Chrome users over 28
 (migration 0019). A page with too little traffic gets CrUX's numbers for the whole site; those are stored once per
 strategy against the origin (`field_scope = 'origin'`), never as the page's own.
 
-- **Which pages:** the homepage, then the pages with the most Search Console clicks in the last 28 days, up to
+- **Which pages:** the homepage, then one page of each template in the latest sitemap (a template is the first path
+  segment and the depth, so every `/jobs/<id>` is one; two or more pages; the page measured last time is kept so its
+  issues can close), then the sitemap pages with the most Search Console clicks in the last 28 days, up to
   `vitals_page_limit` in `config/projects/<slug>.yaml` (1 to 25, default 10). A deploy audit puts the changed pages
   right after the homepage and measures at most 5. Protected routes are never measured.
 - **When:** the monthly run, every post-deploy audit, and on demand with the `page_speed` workflow.
