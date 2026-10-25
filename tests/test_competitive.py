@@ -85,7 +85,8 @@ def test_backlink_changes_and_lost_links_are_collected(worker_url, seeded):
     collect("backlink_gap", project, run_id, {"_transport": httpx.MockTransport(handle), "today": date(2026, 10, 17)}, db_url=worker_url)
     status = {b["target"]: b["backlinks_status_type"] for b in bodies["referring_domains"]}
     assert status == {"naukri.com": "live", "korum.worldhire.com": "all"}, "the site's lost links are kept; competitors' are live only"
-    assert [b["date_from"] for b in bodies["timeseries_new_lost_summary"]] == ["2025-10-01", "2025-10-01"]
+    assert [(b["date_from"], b["date_to"]) for b in bodies["timeseries_new_lost_summary"]] == [("2025-10-01", "2026-10-17")] * 2, \
+        "DataForSEO refuses date_from without date_to (run a9f5f04e)"
     with project_scope(project.id, url=worker_url) as s:
         changes = s.fetchall("select target, month, new_referring_domains, lost_referring_domains from raw_backlink_changes where project_id = %(project_id)s and run_id = %(r)s order by target", {"r": run_id})
         lost = s.fetchone("select domain, lost_date from raw_referring_domains where project_id = %(project_id)s and run_id = %(r)s and lost_date is not null", {"r": run_id})

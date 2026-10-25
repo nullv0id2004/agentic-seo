@@ -94,10 +94,13 @@ def collect(ctx: CollectorContext, params: dict[str, Any]) -> None:
                 "referring_main_domains": _int(result.get("referring_main_domains")),
                 "spam_score": _int(result.get("backlinks_spam_score")), "first_seen": _ts(result.get("first_seen")),
             })
-        start = months_back(params.get("today") or date.today(), CHANGE_MONTHS)
+        today = params.get("today") or date.today()
+        start = months_back(today, CHANGE_MONTHS)
         for target, role, _ in targets:
-            result = _result(ctx, http, CHANGES_API, {"target": target, "date_from": start.isoformat(), "group_range": "month"},
-                             "backlink changes", target)
+            # date_from is refused (40501 "Invalid Field: 'date_from'") unless date_to is sent with it, which the docs
+            # do not say: run a9f5f04e lost every target's changes to it. Without date_from the API returns since 2019.
+            result = _result(ctx, http, CHANGES_API, {"target": target, "date_from": start.isoformat(), "date_to": today.isoformat(),
+                                                      "group_range": "month"}, "backlink changes", target)
             for it in (result or {}).get("items") or []:
                 when = _ts(it.get("date"))
                 if when is None:
